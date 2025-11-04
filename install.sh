@@ -196,6 +196,12 @@ install_config() {
     local config_dir="/etc/tierflow"
     local config_file="$config_dir/config.yaml"
 
+    # Skip if config already exists
+    if [ -f "$config_file" ]; then
+        info "Config already exists at $config_file (skipping)"
+        return
+    fi
+
     info "Installing default configuration..."
 
     # Try to create config directory
@@ -230,6 +236,12 @@ install_systemd() {
     fi
 
     local service_file="/etc/systemd/system/tierflow.service"
+
+    # Skip if service already exists
+    if [ -f "$service_file" ]; then
+        info "Systemd service already exists at $service_file (skipping)"
+        return
+    fi
 
     info "Installing systemd service..."
 
