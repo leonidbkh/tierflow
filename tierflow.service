@@ -1,42 +1,39 @@
 [Unit]
-Description=Tierflow Storage Balancer Daemon
+Description=Tierflow storage balancer daemon
 Documentation=https://github.com/leonidbkh/tierflow
-After=network.target
-Wants=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-Group=root
 
-# Path to binary and config
-ExecStart=/usr/local/bin/tierflow daemon -c /etc/tierflow/config.yaml -i 3600
+# Run as user that has access to your storage tiers
+# IMPORTANT: Change this to your user or create dedicated user
+User=root
+
+# Command to run
+ExecStart=/usr/local/bin/tierflow daemon --config /etc/tierflow/config.yaml --interval 3600
 
 # Restart policy
 Restart=on-failure
 RestartSec=60
 
-# Resource limits
-Nice=10
-IOSchedulingClass=idle
-IOSchedulingPriority=7
+# Timeouts
+TimeoutStopSec=300
 
 # Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tierflow
 
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/mnt
+# Resource limits - run with low priority
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
 
-# Allow access to tier directories
-# Adjust these paths to match your tier configurations
-ReadWritePaths=/mnt/tier1-nvme
-ReadWritePaths=/mnt/tier2-storage
+# Environment
+# Uncomment to enable debug logging:
+# Environment="RUST_LOG=tierflow=debug"
 
 [Install]
 WantedBy=multi-user.target

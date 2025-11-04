@@ -1,0 +1,33 @@
+# Tierflow Configuration
+# IMPORTANT: This is a minimal safe config that does nothing by default
+# Edit this file to define your storage tiers and strategies
+
+# Define your storage tiers (disks)
+tiers:
+  # Example: Fast NVMe disk
+  # - name: nvme
+  #   path: /mnt/nvme
+  #   priority: 1
+  #   max_usage_percent: 85
+
+  # Example: Slow HDD storage
+  # - name: storage
+  #   path: /mnt/storage
+  #   priority: 10
+
+# Define strategies (rules for where files should go)
+strategies:
+  # Example: Move files older than 7 days to slow storage
+  # - name: old_to_storage
+  #   priority: 100
+  #   conditions:
+  #     - type: max_age
+  #       max_age_hours: 168
+  #   preferred_tiers:
+  #     - storage
+
+# NEXT STEPS:
+# 1. Uncomment and edit the tiers section above to match your disks
+# 2. Uncomment and edit the strategies section to define your rules
+# 3. Test with: tierflow rebalance --config /etc/tierflow/config.yaml --dry-run
+# 4. See full examples: https://github.com/leonidbkh/tierflow/blob/main/config.example.yaml

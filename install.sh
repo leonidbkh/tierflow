@@ -181,13 +181,81 @@ verify_installation() {
     info "Installed version: $installed_version"
 }
 
+# Install default config
+install_config() {
+    local config_dir="/etc/tierflow"
+    local config_file="$config_dir/config.yaml"
+
+    info "Installing default configuration..."
+
+    # Try to create config directory
+    if [ -w "/etc" ] || sudo mkdir -p "$config_dir" 2>/dev/null; then
+        # Download safe default config
+        if ! sudo curl -sSfL "https://raw.githubusercontent.com/leonidbkh/tierflow/main/config.yaml" -o "$config_file" 2>/dev/null; then
+            warn "Failed to download config, creating minimal one"
+            sudo tee "$config_file" >/dev/null <<'EOF'
+# Tierflow Configuration
+# IMPORTANT: This config does nothing by default - edit it first!
+# See examples: https://github.com/leonidbkh/tierflow/blob/main/config.example.yaml
+
+tiers: []
+strategies: []
+EOF
+        fi
+        success "Config installed to $config_file"
+        info "IMPORTANT: Edit this file to define your tiers and strategies"
+    else
+        warn "Cannot create $config_dir (no permissions)"
+        info "Create it manually: sudo mkdir -p $config_dir"
+    fi
+}
+
+# Ask about systemd installation
+ask_install_systemd() {
+    printf '\n%s' "${BOLD}Install systemd service?${RESET} (requires sudo) [y/N]: "
+    read -r answer
+
+    case "$answer" in
+        [yY]|[yY][eE][sS])
+            install_systemd
+            ;;
+        *)
+            info "Skipping systemd installation"
+            info "You can install it later: sudo cp tierflow.service /etc/systemd/system/"
+            ;;
+    esac
+}
+
+# Install systemd service
+install_systemd() {
+    local service_file="/etc/systemd/system/tierflow.service"
+
+    info "Installing systemd service..."
+
+    # Download service file
+    if ! sudo curl -sSfL "https://raw.githubusercontent.com/leonidbkh/tierflow/main/tierflow.service" -o "$service_file" 2>/dev/null; then
+        error "Failed to download service file"
+        return 1
+    fi
+
+    # Reload systemd
+    if command -v systemctl >/dev/null 2>&1; then
+        sudo systemctl daemon-reload
+        success "Systemd service installed to $service_file"
+        info "Enable and start: sudo systemctl enable --now tierflow"
+        info "IMPORTANT: Edit /etc/tierflow/config.yaml first!"
+    else
+        warn "systemctl not found"
+    fi
+}
+
 # Print next steps
 print_next_steps() {
     printf '\n%s\n' "${BOLD}Next steps:${RESET}"
-    printf '  1. Create a config file: %s\n' "${BLUE}tierflow --help${RESET}"
-    printf '  2. Check example config: %s\n' "${BLUE}https://github.com/leonidbkh/tierflow/blob/main/config.example.yaml${RESET}"
-    printf '  3. Run dry-run mode: %s\n' "${BLUE}tierflow rebalance --config config.yaml --dry-run${RESET}"
-    printf '  4. Documentation: %s\n' "${BLUE}https://github.com/leonidbkh/tierflow${RESET}"
+    printf '  1. Edit config: %s\n' "${BLUE}sudo nano /etc/tierflow/config.yaml${RESET}"
+    printf '  2. Check examples: %s\n' "${BLUE}https://github.com/leonidbkh/tierflow/blob/main/config.example.yaml${RESET}"
+    printf '  3. Test with dry-run: %s\n' "${BLUE}tierflow rebalance --config /etc/tierflow/config.yaml --dry-run${RESET}"
+    printf '  4. Start daemon: %s\n' "${BLUE}sudo systemctl enable --now tierflow${RESET}"
     printf '\n'
 }
 
@@ -202,6 +270,10 @@ main() {
     download_binary
     install_binary
     verify_installation
+
+    printf '\n'
+    install_config
+    ask_install_systemd
 
     printf '\n'
     success "Tierflow has been installed successfully!"
