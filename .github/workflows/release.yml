@@ -12,45 +12,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Tierflow ${{ steps.get_version.outputs.version }}
-          draft: false
-          prerelease: false
-          body: |
-            ## Installation
-
-            ### Quick Install (Linux)
-            ```bash
-            curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/install.sh | sh
-            ```
-
-            ### Manual Download
-            Download the pre-built binary from the assets below:
-            - `tierflow-x86_64-unknown-linux-gnu.tar.gz` - Linux x86_64 (Intel/AMD)
-
-            ## What's Changed
-            See [CHANGELOG.md](https://github.com/leonidbkh/tierflow/blob/main/CHANGELOG.md) for details.
-
   build-release:
-    name: Build Release Binary
-    needs: create-release
+    name: Build and Release
     runs-on: ubuntu-latest
 
     steps:
@@ -83,34 +46,35 @@ jobs:
       - name: Strip binary
         run: strip target/release/tierflow
 
-      - name: Create tarball
+      - name: Create tarball and checksums
         run: |
           cd target/release
           tar -czf tierflow-x86_64-unknown-linux-gnu.tar.gz tierflow
-          cd -
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target/release/tierflow-x86_64-unknown-linux-gnu.tar.gz
-          asset_name: tierflow-x86_64-unknown-linux-gnu.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Generate checksums
-        run: |
-          cd target/release
           sha256sum tierflow-x86_64-unknown-linux-gnu.tar.gz > tierflow-x86_64-unknown-linux-gnu.tar.gz.sha256
           cd -
 
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target/release/tierflow-x86_64-unknown-linux-gnu.tar.gz.sha256
-          asset_name: tierflow-x86_64-unknown-linux-gnu.tar.gz.sha256
-          asset_content_type: text/plain
+          files: |
+            target/release/tierflow-x86_64-unknown-linux-gnu.tar.gz
+            target/release/tierflow-x86_64-unknown-linux-gnu.tar.gz.sha256
+          body: |
+            ## Installation
+
+            ### Quick Install (Linux)
+            ```bash
+            curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/install.sh | sh
+            ```
+
+            ### Update Existing Installation
+            ```bash
+            curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/update.sh | sh
+            ```
+
+            ### Manual Download
+            Download the pre-built binary from the assets below:
+            - `tierflow-x86_64-unknown-linux-gnu.tar.gz` - Linux x86_64 (Intel/AMD)
+
+            ## What's Changed
+            See [CHANGELOG.md](https://github.com/leonidbkh/tierflow/blob/main/CHANGELOG.md) for details.
