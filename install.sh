@@ -37,36 +37,27 @@ error() {
     printf '%s\n' "${RED}Error:${RESET} $*" >&2
 }
 
-# Detect architecture
+# Detect platform
 detect_platform() {
     local os arch
 
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
     arch=$(uname -m)
 
-    # Only support Linux
+    # Only support Linux x86_64
     if [ "$os" != "linux" ]; then
         error "Only Linux is supported. Detected OS: $os"
-        error "Tierflow is a server application designed for Linux systems."
         exit 1
     fi
 
-    case "$arch" in
-        x86_64|amd64)
-            ARCH="x86_64"
-            ;;
-        aarch64|arm64)
-            ARCH="aarch64"
-            ;;
-        *)
-            error "Unsupported architecture: $arch"
-            error "Supported: x86_64, aarch64"
-            exit 1
-            ;;
-    esac
+    if [ "$arch" != "x86_64" ] && [ "$arch" != "amd64" ]; then
+        error "Only x86_64 architecture is supported. Detected: $arch"
+        error "Tierflow is designed for standard Linux servers."
+        exit 1
+    fi
 
-    PLATFORM="${ARCH}-unknown-linux-gnu"
-    info "Detected platform: $PLATFORM"
+    PLATFORM="x86_64-unknown-linux-gnu"
+    info "Platform: Linux x86_64"
 }
 
 # Check for required commands

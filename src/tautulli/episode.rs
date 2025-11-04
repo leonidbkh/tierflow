@@ -1,4 +1,4 @@
-use lazy_regex::{regex, Regex};
+use lazy_regex::{Regex, regex};
 use std::path::Path;
 
 // Regex patterns for episode parsing

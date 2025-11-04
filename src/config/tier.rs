@@ -15,12 +15,7 @@ pub struct TierConfig {
 
 impl TierConfig {
     pub fn into_tier(self) -> io::Result<Tier> {
-        Tier::new(
-            self.name,
-            self.path,
-            self.priority,
-            self.max_usage_percent,
-        )
+        Tier::new(self.name, self.path, self.priority, self.max_usage_percent)
     }
 }
 

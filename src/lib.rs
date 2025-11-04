@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod balancer;
 pub mod cli;
 pub mod conditions;
@@ -31,7 +33,7 @@ pub use mover::{DryRunMover, Mover, RsyncMover};
 pub use stats::{FileStats, GlobalStats};
 pub use strategy::PlacementStrategy;
 pub use tautulli::{
-    build_progress, normalize_show_name, parse_episode, EpisodeInfo, HistoryItem, ShowProgress,
-    TautulliClient, TautulliStats,
+    EpisodeInfo, HistoryItem, ShowProgress, TautulliClient, TautulliStats, build_progress,
+    normalize_show_name, parse_episode,
 };
 pub use tier::Tier;

@@ -61,10 +61,10 @@ impl Executor {
                     strategy,
                     ..
                 } => {
-                    let action = match decision {
-                        PlacementDecision::Promote { .. } => "Promoting",
-                        PlacementDecision::Demote { .. } => "Demoting",
-                        PlacementDecision::Stay { .. } => unreachable!(),
+                    let action = if matches!(decision, PlacementDecision::Promote { .. }) {
+                        "Promoting"
+                    } else {
+                        "Demoting"
                     };
 
                     log::info!(

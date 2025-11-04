@@ -3,16 +3,10 @@ use crate::FileInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrefixMode {
-    /// Whitelist: file MUST have the prefix (default)
+    /// Whitelist: file MUST have the prefix
     Whitelist,
     /// Blacklist: file must NOT have the prefix
     Blacklist,
-}
-
-impl Default for PrefixMode {
-    fn default() -> Self {
-        Self::Whitelist
-    }
 }
 
 /// Condition that checks file path prefix relative to tier root
@@ -48,14 +42,16 @@ impl PathPrefixCondition {
 
 impl Condition for PathPrefixCondition {
     fn matches(&self, file: &FileInfo, context: &Context) -> bool {
-        let tier_path = if let Some(path) = &context.current_tier_path { path } else {
-            log::warn!(
-                "PathPrefixCondition requires current_tier_path in context, but it's None"
-            );
+        let tier_path = if let Some(path) = &context.current_tier_path {
+            path
+        } else {
+            log::warn!("PathPrefixCondition requires current_tier_path in context, but it's None");
             return false;
         };
 
-        let relative_path = if let Ok(rel) = file.path.strip_prefix(tier_path) { rel } else {
+        let relative_path = if let Ok(rel) = file.path.strip_prefix(tier_path) {
+            rel
+        } else {
             log::warn!(
                 "File {} is not under tier {}",
                 file.path.display(),
@@ -308,11 +304,6 @@ mod tests {
 
         // Файл НЕ в downloads → НЕ матчится
         assert!(!condition.matches(&create_test_file("/mnt/cache/series/show.mkv"), &context));
-    }
-
-    #[test]
-    fn test_prefix_mode_default() {
-        assert_eq!(PrefixMode::default(), PrefixMode::Whitelist);
     }
 
     #[test]

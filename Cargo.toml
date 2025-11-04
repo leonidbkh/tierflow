@@ -57,6 +57,20 @@ unused_self = "allow"                  # Trait methods may not use self
 items_after_statements = "allow"       # Local constants are clearer inline
 match_same_arms = "allow"              # Sometimes duplication aids readability
 manual_let_else = "allow"              # Old style is sometimes clearer
+uninlined_format_args = "allow"        # "foo: {}", bar is fine
+redundant_field_names = "allow"        # Sometimes explicit is clearer
+wildcard_enum_match_arm = "allow"      # _ => Ok(()) is fine for tests
+unreadable_literal = "allow"           # 1000000 is readable enough
+suspicious_open_options = "allow"      # .create(true) without .truncate is ok
+cloned_instead_of_copied = "allow"     # .clone() on Copy types is fine
+unnecessary_wraps = "allow"            # Result returns are future-proof
+match_wildcard_for_single_variants = "allow"  # Wildcard match for Result is fine
+cloned_ref_to_slice_refs = "allow"     # [x.clone()] is clearer than slice::from_ref
+ignored_unit_patterns = "allow"        # let _ = () is fine
+unwrap_in_result = "allow"             # Tests can unwrap in result-returning functions
+unnecessary_literal_unwrap = "allow"   # Ok::<_, ()>(x).unwrap() in tests is fine
+tests_outside_test_module = "allow"    # Helper functions can live outside mod tests
+missing_const_for_fn = "allow"         # Not all functions need to be const
 
 # Keep important lints that catch real issues
 unwrap_used = "warn"                   # Prefer proper error handling

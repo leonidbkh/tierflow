@@ -36,15 +36,17 @@ impl TautulliClient {
     pub fn health_check(&self) -> Result<()> {
         log::info!("Performing Tautulli health check: {}", self.base_url);
 
-        let url = format!("{}api/v2?apikey={}&cmd=get_server_info", self.base_url, self.api_key);
+        let url = format!(
+            "{}api/v2?apikey={}&cmd=get_server_info",
+            self.base_url, self.api_key
+        );
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| {
-                AppError::External(format!("Failed to connect to Tautulli at {}: {}", self.base_url, e))
-            })?;
+        let response = self.client.get(&url).send().map_err(|e| {
+            AppError::External(format!(
+                "Failed to connect to Tautulli at {}: {}",
+                self.base_url, e
+            ))
+        })?;
 
         if !response.status().is_success() {
             return Err(AppError::External(format!(
@@ -53,9 +55,9 @@ impl TautulliClient {
             )));
         }
 
-        let api_response: TautulliResponse<ServerInfo> = response.json().map_err(|e| {
-            AppError::External(format!("Failed to parse Tautulli response: {e}"))
-        })?;
+        let api_response: TautulliResponse<ServerInfo> = response
+            .json()
+            .map_err(|e| AppError::External(format!("Failed to parse Tautulli response: {e}")))?;
 
         match api_response.response.result {
             ResponseResult::Success => {
@@ -68,7 +70,10 @@ impl TautulliClient {
             }
             ResponseResult::Error => Err(AppError::External(format!(
                 "Tautulli API returned error: {}",
-                api_response.response.message.unwrap_or_else(|| "Unknown error".to_string())
+                api_response
+                    .response
+                    .message
+                    .unwrap_or_else(|| "Unknown error".to_string())
             ))),
         }
     }
@@ -82,11 +87,10 @@ impl TautulliClient {
             self.base_url, self.api_key, length
         );
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| AppError::External(format!("Failed to fetch Tautulli history: {e}")))?;
+        let response =
+            self.client.get(&url).send().map_err(|e| {
+                AppError::External(format!("Failed to fetch Tautulli history: {e}"))
+            })?;
 
         if !response.status().is_success() {
             return Err(AppError::External(format!(
@@ -102,20 +106,30 @@ impl TautulliClient {
 
         log::trace!("Tautulli history response: {response_text}");
 
-        let api_response: TautulliResponse<HistoryResponse> = serde_json::from_str(&response_text).map_err(|e| {
-            log::error!("Failed to parse Tautulli history response. Error: {e}");
-            log::debug!("Response body (first 1000 chars): {}", &response_text[..response_text.len().min(1000)]);
-            AppError::External(format!("Failed to parse Tautulli history response: {e}"))
-        })?;
+        let api_response: TautulliResponse<HistoryResponse> = serde_json::from_str(&response_text)
+            .map_err(|e| {
+                log::error!("Failed to parse Tautulli history response. Error: {e}");
+                log::debug!(
+                    "Response body (first 1000 chars): {}",
+                    &response_text[..response_text.len().min(1000)]
+                );
+                AppError::External(format!("Failed to parse Tautulli history response: {e}"))
+            })?;
 
         match api_response.response.result {
             ResponseResult::Success => {
-                log::debug!("Fetched {} history items", api_response.response.data.data.len());
+                log::debug!(
+                    "Fetched {} history items",
+                    api_response.response.data.data.len()
+                );
                 Ok(api_response.response.data.data)
             }
             ResponseResult::Error => Err(AppError::External(format!(
                 "Tautulli API returned error: {}",
-                api_response.response.message.unwrap_or_else(|| "Unknown error".to_string())
+                api_response
+                    .response
+                    .message
+                    .unwrap_or_else(|| "Unknown error".to_string())
             ))),
         }
     }
@@ -456,7 +470,8 @@ mod tests {
             "stopped": 9876543210
         }"#;
 
-        let item: HistoryItem = serde_json::from_str(json).expect("Should deserialize mixed formats");
+        let item: HistoryItem =
+            serde_json::from_str(json).expect("Should deserialize mixed formats");
         assert_eq!(item.user, "bob");
         assert_eq!(item.grandparent_title, "The Wire");
         assert_eq!(item.parent_media_index, 2);
@@ -478,12 +493,13 @@ mod tests {
             "stopped": 1234567890
         }"#;
 
-        let item: HistoryItem = serde_json::from_str(json).expect("Should deserialize empty strings");
+        let item: HistoryItem =
+            serde_json::from_str(json).expect("Should deserialize empty strings");
         assert_eq!(item.user, "charlie");
         assert_eq!(item.rating_key, "99999");
         assert_eq!(item.grandparent_title, "");
-        assert_eq!(item.parent_media_index, 0);  // Empty string becomes 0
-        assert_eq!(item.media_index, 0);         // Empty string becomes 0
+        assert_eq!(item.parent_media_index, 0); // Empty string becomes 0
+        assert_eq!(item.media_index, 0); // Empty string becomes 0
         assert_eq!(item.percent_complete, 75);
         assert_eq!(item.stopped, 1234567890);
     }

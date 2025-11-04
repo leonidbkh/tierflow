@@ -33,7 +33,10 @@ impl Balancer {
         let file_map = self.scan_all_tiers();
 
         // PASS 1: Collect statistics from all files
-        log::info!("Pass 1: Collecting statistics from {} files...", file_map.len());
+        log::info!(
+            "Pass 1: Collecting statistics from {} files...",
+            file_map.len()
+        );
         let mut global_stats = self.collect_global_stats(file_map.keys());
 
         // Load Tautulli data if configured
@@ -301,7 +304,7 @@ impl Balancer {
     where
         I: IntoIterator<Item = &'a FileInfo>,
     {
-        use crate::{build_progress, TautulliClient, TautulliStats};
+        use crate::{TautulliClient, TautulliStats, build_progress};
 
         // Create Tautulli client
         let client = TautulliClient::new(config.url.clone(), config.api_key.clone())?;
@@ -432,7 +435,8 @@ mod tests {
                 );
             } else {
                 let would_be_free = simulated_free.saturating_sub(file_size);
-                let would_be_percent = ((total - would_be_free) as f64 / total as f64 * 100.0) as u64;
+                let would_be_percent =
+                    ((total - would_be_free) as f64 / total as f64 * 100.0) as u64;
 
                 assert!(
                     would_be_percent > 80,

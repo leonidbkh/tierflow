@@ -1,7 +1,7 @@
+use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
-use std::fs;
 
 /// Trait for moving files between tiers
 /// Different implementations can use rsync, cp, mv, etc.
@@ -45,9 +45,7 @@ impl RsyncMover {
         use std::io::Read;
 
         // Use xxhsum or sha256sum command for performance on large files
-        let output = Command::new("sha256sum")
-            .arg(path.as_os_str())
-            .output();
+        let output = Command::new("sha256sum").arg(path.as_os_str()).output();
 
         match output {
             Ok(output) if output.status.success() => {
@@ -78,9 +76,7 @@ impl RsyncMover {
             }
         }
 
-        Err(io::Error::other(
-            "Failed to calculate checksum",
-        ))
+        Err(io::Error::other("Failed to calculate checksum"))
     }
 }
 
@@ -131,7 +127,10 @@ impl Mover for RsyncMover {
 
             let backup_path = destination.with_extension(format!(
                 "{}.backup-{}",
-                destination.extension().unwrap_or_default().to_string_lossy(),
+                destination
+                    .extension()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
                 timestamp
             ));
 
@@ -153,9 +152,9 @@ impl Mover for RsyncMover {
         let mut cmd = Command::new("rsync");
 
         // Base arguments for file copy (no --remove-source-files!)
-        cmd.arg("-av")  // Archive mode with verbose
-           .arg("--checksum")  // Use checksums for verification
-           .arg("--progress");  // Show progress during transfer
+        cmd.arg("-av") // Archive mode with verbose
+            .arg("--checksum") // Use checksums for verification
+            .arg("--progress"); // Show progress during transfer
 
         // Add any extra arguments
         for arg in &self.extra_args {
@@ -163,8 +162,7 @@ impl Mover for RsyncMover {
         }
 
         // Add source and destination
-        cmd.arg(source.as_os_str())
-           .arg(destination.as_os_str());
+        cmd.arg(source.as_os_str()).arg(destination.as_os_str());
 
         log::info!(
             "Copying file: {} -> {}",
@@ -187,20 +185,19 @@ impl Mover for RsyncMover {
                 stderr
             );
 
-            return Err(io::Error::other(
-                format!(
-                    "rsync failed with exit code {:?}: {}",
-                    output.status.code(),
-                    stderr
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "rsync failed with exit code {:?}: {}",
+                output.status.code(),
+                stderr
+            )));
         }
 
         // Step 2: Verify the file was copied correctly
         if !destination.exists() {
-            return Err(io::Error::other(
-                format!("Destination file was not created: {}", destination.display()),
-            ));
+            return Err(io::Error::other(format!(
+                "Destination file was not created: {}",
+                destination.display()
+            )));
         }
 
         // Step 3: Verify file sizes match
@@ -210,13 +207,11 @@ impl Mover for RsyncMover {
         if source_metadata.len() != dest_metadata.len() {
             // Try to clean up the incomplete copy
             let _ = fs::remove_file(destination);
-            return Err(io::Error::other(
-                format!(
-                    "File size mismatch after copy: source={} bytes, dest={} bytes",
-                    source_metadata.len(),
-                    dest_metadata.len()
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "File size mismatch after copy: source={} bytes, dest={} bytes",
+                source_metadata.len(),
+                dest_metadata.len()
+            )));
         }
 
         // Step 4: Calculate checksums for both files
@@ -226,11 +221,9 @@ impl Mover for RsyncMover {
         if source_checksum != dest_checksum {
             // Try to clean up the corrupted copy
             let _ = fs::remove_file(destination);
-            return Err(io::Error::other(
-                format!(
-                    "Checksum mismatch after copy: source={source_checksum}, dest={dest_checksum}"
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "Checksum mismatch after copy: source={source_checksum}, dest={dest_checksum}"
+            )));
         }
 
         // Step 5: Only now, after all verification, remove the source
@@ -316,7 +309,7 @@ mod tests {
 
     // Integration test - only run if rsync is available
     #[test]
-    #[ignore] // Run with `cargo test -- --ignored` if you want to test actual rsync
+    #[ignore = "requires rsync, run with --ignored"]
     fn test_rsync_mover_actual_move() {
         let temp_dir = TempDir::new().unwrap();
         let source_path = temp_dir.path().join("source.txt");

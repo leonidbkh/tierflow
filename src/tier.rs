@@ -105,7 +105,8 @@ impl Tier {
                     // Log the error but continue processing other files
                     log::warn!(
                         "Failed to read directory entry in tier '{}': {}",
-                        self.name, err
+                        self.name,
+                        err
                     );
                     None
                 }

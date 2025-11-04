@@ -39,10 +39,7 @@ pub enum AppError {
     },
 
     #[error("Command failed: {command}. Exit code: {exit_code}")]
-    CommandFailed {
-        command: String,
-        exit_code: i32,
-    },
+    CommandFailed { command: String, exit_code: i32 },
 
     #[error("External service error: {0}")]
     External(String),

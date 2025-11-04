@@ -1,5 +1,5 @@
-use crate::tautulli::TautulliStats;
 use crate::FileInfo;
+use crate::tautulli::TautulliStats;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -74,7 +74,8 @@ impl FileStats {
         // Get parent directory (use root if no parent)
         let parent = file
             .path
-            .parent().map_or_else(|| PathBuf::from("/"), std::path::Path::to_path_buf);
+            .parent()
+            .map_or_else(|| PathBuf::from("/"), std::path::Path::to_path_buf);
 
         // Add to directory files list
         self.directory_files
@@ -88,7 +89,8 @@ impl FileStats {
             .get(&parent)
             .is_none_or(|&newest| file.modified > newest);
         if should_update_newest {
-            self.newest_file_per_dir.insert(parent.clone(), file.modified);
+            self.newest_file_per_dir
+                .insert(parent.clone(), file.modified);
         }
 
         // Update oldest file
@@ -97,7 +99,8 @@ impl FileStats {
             .get(&parent)
             .is_none_or(|&oldest| file.modified < oldest);
         if should_update_oldest {
-            self.oldest_file_per_dir.insert(parent.clone(), file.modified);
+            self.oldest_file_per_dir
+                .insert(parent.clone(), file.modified);
         }
 
         // Update total size
@@ -279,10 +282,7 @@ mod tests {
         let stats = FileStats::collect(&files);
         let cloned = stats.clone();
 
-        assert_eq!(
-            stats.directory_files.len(),
-            cloned.directory_files.len()
-        );
+        assert_eq!(stats.directory_files.len(), cloned.directory_files.len());
         assert_eq!(stats.newest_file_per_dir, cloned.newest_file_per_dir);
     }
 }

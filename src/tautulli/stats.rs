@@ -1,4 +1,4 @@
-use super::{normalize_show_name, parse_episode, EpisodeInfo, ShowProgress};
+use super::{EpisodeInfo, ShowProgress, normalize_show_name, parse_episode};
 use crate::FileInfo;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -218,9 +218,11 @@ mod tests {
 
     #[test]
     fn test_tautulli_stats_build() {
-        let files = [create_file_info("/mnt/cache/Breaking.Bad.S01E05.mkv"),
+        let files = [
+            create_file_info("/mnt/cache/Breaking.Bad.S01E05.mkv"),
             create_file_info("/mnt/cache/Breaking.Bad.S01E06.mkv"),
-            create_file_info("/mnt/cache/Breaking.Bad.S01E10.mkv")];
+            create_file_info("/mnt/cache/Breaking.Bad.S01E10.mkv"),
+        ];
 
         let progress = vec![create_progress("Breaking Bad", 1, 6)];
 
@@ -233,15 +235,29 @@ mod tests {
         assert_eq!(stats.active_window_episodes.len(), 3);
 
         let normalized_show = normalize_show_name("Breaking Bad");
-        assert!(stats.active_window_episodes.contains(&(normalized_show.clone(), 1, 5)));
-        assert!(stats.active_window_episodes.contains(&(normalized_show.clone(), 1, 6)));
-        assert!(stats.active_window_episodes.contains(&(normalized_show, 1, 7)));
+        assert!(
+            stats
+                .active_window_episodes
+                .contains(&(normalized_show.clone(), 1, 5))
+        );
+        assert!(
+            stats
+                .active_window_episodes
+                .contains(&(normalized_show.clone(), 1, 6))
+        );
+        assert!(
+            stats
+                .active_window_episodes
+                .contains(&(normalized_show, 1, 7))
+        );
     }
 
     #[test]
     fn test_is_in_active_window() {
-        let files = [create_file_info("/mnt/cache/Breaking.Bad.S01E05.mkv"),
-            create_file_info("/mnt/cache/Breaking.Bad.S01E10.mkv")];
+        let files = [
+            create_file_info("/mnt/cache/Breaking.Bad.S01E05.mkv"),
+            create_file_info("/mnt/cache/Breaking.Bad.S01E10.mkv"),
+        ];
 
         let progress = vec![create_progress("Breaking Bad", 1, 6)];
 

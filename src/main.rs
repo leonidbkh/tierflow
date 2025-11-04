@@ -1,12 +1,12 @@
 use clap::Parser;
+use std::process;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tierflow::{
     Balancer, BalancingConfig, Cli, Commands, DryRunMover, Executor, Mover, MoverType,
     PlacementDecision, RsyncMover, TierLockGuard,
 };
-use std::process;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
 
 fn main() {
     // Initialize logger
@@ -170,11 +170,12 @@ fn run_daemon(
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
-    ctrlc::set_handler(move || {
+    if let Err(e) = ctrlc::set_handler(move || {
         log::info!("Received interrupt signal, shutting down gracefully...");
         r.store(false, Ordering::SeqCst);
-    })
-    .expect("Error setting Ctrl-C handler");
+    }) {
+        log::warn!("Failed to set Ctrl-C handler: {}", e);
+    }
 
     let mut run_number = 1;
 
@@ -231,9 +232,7 @@ fn print_plan(plan: &tierflow::BalancingPlan) {
                 } => {
                     println!("  [INSUFFICIENT SPACE] {}", file.display());
                     println!("    Strategy: {strategy}");
-                    println!(
-                        "    Needed: {needed} bytes, Available: {available} bytes"
-                    );
+                    println!("    Needed: {needed} bytes, Available: {available} bytes");
                 }
                 tierflow::PlanWarning::RequiredStrategyFailed {
                     strategy,

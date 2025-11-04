@@ -21,12 +21,6 @@ impl From<ExtensionModeConfig> for ExtensionMode {
     }
 }
 
-impl Default for ExtensionModeConfig {
-    fn default() -> Self {
-        Self::Whitelist
-    }
-}
-
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PrefixModeConfig {
@@ -40,12 +34,6 @@ impl From<PrefixModeConfig> for PrefixMode {
             PrefixModeConfig::Whitelist => Self::Whitelist,
             PrefixModeConfig::Blacklist => Self::Blacklist,
         }
-    }
-}
-
-impl Default for PrefixModeConfig {
-    fn default() -> Self {
-        Self::Whitelist
     }
 }
 
@@ -65,12 +53,6 @@ impl From<ContainsModeConfig> for ContainsMode {
     }
 }
 
-impl Default for ContainsModeConfig {
-    fn default() -> Self {
-        Self::Whitelist
-    }
-}
-
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ConditionConfig {
@@ -80,12 +62,10 @@ pub enum ConditionConfig {
     AlwaysTrue,
     FileExtension {
         extensions: Vec<String>,
-        #[serde(default)]
         mode: ExtensionModeConfig,
     },
     PathPrefix {
         prefix: String,
-        #[serde(default)]
         mode: PrefixModeConfig,
     },
     FileSize {
@@ -96,7 +76,6 @@ pub enum ConditionConfig {
     },
     FilenameContains {
         patterns: Vec<String>,
-        #[serde(default)]
         mode: ContainsModeConfig,
         #[serde(default = "default_true")]
         case_sensitive: bool,
@@ -113,9 +92,7 @@ const fn default_true() -> bool {
 impl ConditionConfig {
     pub fn into_condition(self) -> Box<dyn Condition> {
         match self {
-            Self::MaxAge { max_age_hours } => {
-                Box::new(MaxAgeCondition::new(max_age_hours))
-            }
+            Self::MaxAge { max_age_hours } => Box::new(MaxAgeCondition::new(max_age_hours)),
             Self::AlwaysTrue => Box::new(AlwaysTrueCondition),
             Self::FileExtension { extensions, mode } => Box::new(
                 FileExtensionCondition::new_with_mode(extensions, mode.into()),
@@ -144,9 +121,7 @@ impl ConditionConfig {
                     ))
                 }
             }
-            Self::ActiveWindow { name } => {
-                Box::new(ActiveWindowCondition::new(name))
-            }
+            Self::ActiveWindow { name } => Box::new(ActiveWindowCondition::new(name)),
         }
     }
 }
@@ -258,8 +233,10 @@ type: unknown_condition
             ConditionConfig::AlwaysTrue,
         ];
 
-        let conditions: Vec<Box<dyn Condition>> =
-            configs.into_iter().map(super::ConditionConfig::into_condition).collect();
+        let conditions: Vec<Box<dyn Condition>> = configs
+            .into_iter()
+            .map(super::ConditionConfig::into_condition)
+            .collect();
 
         assert_eq!(conditions.len(), 2);
 
@@ -276,13 +253,14 @@ type: unknown_condition
         let yaml = r#"
 type: file_extension
 extensions: ["mkv", "mp4", "avi"]
+mode: whitelist
 "#;
         let config: ConditionConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             config,
             ConditionConfig::FileExtension {
                 extensions: vec!["mkv".to_string(), "mp4".to_string(), "avi".to_string()],
-                mode: ExtensionModeConfig::Whitelist, // Default
+                mode: ExtensionModeConfig::Whitelist,
             }
         );
     }
@@ -292,6 +270,7 @@ extensions: ["mkv", "mp4", "avi"]
         let yaml = r#"
 type: file_extension
 extensions: ["!qB"]
+mode: whitelist
 "#;
         let config: ConditionConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
@@ -417,6 +396,7 @@ mode: whitelist
         let yaml = r#"
 type: path_prefix
 prefix: "downloads"
+mode: whitelist
 "#;
         let config: ConditionConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
@@ -433,6 +413,7 @@ prefix: "downloads"
         let yaml = r#"
 type: path_prefix
 prefix: "media/movies"
+mode: whitelist
 "#;
         let config: ConditionConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(

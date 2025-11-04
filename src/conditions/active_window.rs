@@ -72,9 +72,11 @@ mod tests {
 
     #[test]
     fn test_active_window_matches_file_in_window() {
-        let files = [create_file_info("/mnt/cache/Breaking.Bad.S01E05.mkv"),
+        let files = [
+            create_file_info("/mnt/cache/Breaking.Bad.S01E05.mkv"),
             create_file_info("/mnt/cache/Breaking.Bad.S01E06.mkv"),
-            create_file_info("/mnt/cache/Breaking.Bad.S01E07.mkv")];
+            create_file_info("/mnt/cache/Breaking.Bad.S01E07.mkv"),
+        ];
 
         let progress = vec![create_progress("Breaking Bad", 1, 6)];
 
@@ -102,9 +104,11 @@ mod tests {
 
     #[test]
     fn test_active_window_does_not_match_outside_window() {
-        let files = [create_file_info("/mnt/cache/Breaking.Bad.S01E01.mkv"),
+        let files = [
+            create_file_info("/mnt/cache/Breaking.Bad.S01E01.mkv"),
             create_file_info("/mnt/cache/Breaking.Bad.S01E06.mkv"),
-            create_file_info("/mnt/cache/Breaking.Bad.S01E10.mkv")];
+            create_file_info("/mnt/cache/Breaking.Bad.S01E10.mkv"),
+        ];
 
         let progress = vec![create_progress("Breaking Bad", 1, 6)];
 
@@ -128,7 +132,8 @@ mod tests {
 
     #[test]
     fn test_active_window_no_tautulli_stats() {
-        let context = Context::new().with_global_stats(&Arc::new(GlobalStats::new(FileStats::new())));
+        let context =
+            Context::new().with_global_stats(&Arc::new(GlobalStats::new(FileStats::new())));
 
         let condition = ActiveWindowCondition::new("test".to_string());
 

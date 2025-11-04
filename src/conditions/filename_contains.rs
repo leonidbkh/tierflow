@@ -3,16 +3,10 @@ use crate::FileInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainsMode {
-    /// Whitelist: filename MUST contain one of the patterns (default)
+    /// Whitelist: filename MUST contain one of the patterns
     Whitelist,
     /// Blacklist: filename must NOT contain any of the patterns
     Blacklist,
-}
-
-impl Default for ContainsMode {
-    fn default() -> Self {
-        Self::Whitelist
-    }
 }
 
 /// Condition that checks if filename contains specified substrings
@@ -123,18 +117,9 @@ mod tests {
         ]);
         let context = Context::new();
 
-        assert!(condition.matches(
-            &create_test_file("/Movie.sample.mkv"),
-            &context
-        ));
-        assert!(condition.matches(
-            &create_test_file("/Movie-trailer.mp4"),
-            &context
-        ));
-        assert!(condition.matches(
-            &create_test_file("/preview_episode.mkv"),
-            &context
-        ));
+        assert!(condition.matches(&create_test_file("/Movie.sample.mkv"), &context));
+        assert!(condition.matches(&create_test_file("/Movie-trailer.mp4"), &context));
+        assert!(condition.matches(&create_test_file("/preview_episode.mkv"), &context));
         assert!(!condition.matches(&create_test_file("/Movie.2023.mkv"), &context));
     }
 
@@ -148,20 +133,11 @@ mod tests {
 
         // Обычные файлы проходят
         assert!(condition.matches(&create_test_file("/Movie.2023.mkv"), &context));
-        assert!(condition.matches(
-            &create_test_file("/Show.S01E01.mkv"),
-            &context
-        ));
+        assert!(condition.matches(&create_test_file("/Show.S01E01.mkv"), &context));
 
         // Файлы с blacklisted паттернами не проходят
-        assert!(!condition.matches(
-            &create_test_file("/Movie.sample.mkv"),
-            &context
-        ));
-        assert!(!condition.matches(
-            &create_test_file("/Movie-trailer.mp4"),
-            &context
-        ));
+        assert!(!condition.matches(&create_test_file("/Movie.sample.mkv"), &context));
+        assert!(!condition.matches(&create_test_file("/Movie-trailer.mp4"), &context));
     }
 
     #[test]
@@ -206,10 +182,7 @@ mod tests {
         let condition = FilenameContainsCondition::new(vec![".tmp.".to_string()]);
         let context = Context::new();
 
-        assert!(condition.matches(
-            &create_test_file("/file.tmp.processing"),
-            &context
-        ));
+        assert!(condition.matches(&create_test_file("/file.tmp.processing"), &context));
         assert!(!condition.matches(&create_test_file("/temporary.mkv"), &context));
     }
 
@@ -222,10 +195,7 @@ mod tests {
             &create_test_file("/Movie.2023.1080p.WEB-DL.RARBG.mkv"),
             &context
         ));
-        assert!(!condition.matches(
-            &create_test_file("/Movie.2023.1080p.WEB-DL.mkv"),
-            &context
-        ));
+        assert!(!condition.matches(&create_test_file("/Movie.2023.1080p.WEB-DL.mkv"), &context));
     }
 
     #[test]
@@ -239,8 +209,7 @@ mod tests {
 
     #[test]
     fn test_empty_patterns_blacklist() {
-        let condition =
-            FilenameContainsCondition::new_with_mode(vec![], ContainsMode::Blacklist);
+        let condition = FilenameContainsCondition::new_with_mode(vec![], ContainsMode::Blacklist);
         let context = Context::new();
 
         // Пустой blacklist - все проходит
@@ -266,10 +235,7 @@ mod tests {
         let condition = FilenameContainsCondition::new(vec!["трейлер".to_string()]);
         let context = Context::new();
 
-        assert!(condition.matches(
-            &create_test_file("/фильмы/Кино.трейлер.mkv"),
-            &context
-        ));
+        assert!(condition.matches(&create_test_file("/фильмы/Кино.трейлер.mkv"), &context));
         assert!(!condition.matches(&create_test_file("/фильмы/Кино.mkv"), &context));
     }
 
@@ -298,19 +264,8 @@ mod tests {
 
         // Временные файлы не проходят
         assert!(!condition.matches(&create_test_file("/document.tmp"), &context));
-        assert!(!condition.matches(
-            &create_test_file("/movie.mkv.part"),
-            &context
-        ));
+        assert!(!condition.matches(&create_test_file("/movie.mkv.part"), &context));
         assert!(!condition.matches(&create_test_file("/~document.doc"), &context));
-        assert!(!condition.matches(
-            &create_test_file("/backup.temp.zip"),
-            &context
-        ));
-    }
-
-    #[test]
-    fn test_contains_mode_default() {
-        assert_eq!(ContainsMode::default(), ContainsMode::Whitelist);
+        assert!(!condition.matches(&create_test_file("/backup.temp.zip"), &context));
     }
 }

@@ -99,9 +99,7 @@ impl BalancingConfig {
         match self.mover.mover_type {
             MoverType::Rsync => {
                 // Check if rsync is available
-                let result = Command::new("rsync")
-                    .arg("--version")
-                    .output();
+                let result = Command::new("rsync").arg("--version").output();
 
                 match result {
                     Ok(output) if output.status.success() => {
@@ -132,14 +130,15 @@ impl BalancingConfig {
                     tautulli_config.api_key.clone(),
                 )?;
 
-                client.health_check().map_err(|e| {
-                    ConfigError::TautulliUnavailable {
+                client
+                    .health_check()
+                    .map_err(|e| ConfigError::TautulliUnavailable {
                         reason: format!("Tautulli health check failed: {e}"),
-                    }
-                })?;
+                    })?;
             } else {
                 return Err(ConfigError::TautulliRequired {
-                    reason: "active_window condition is used but tautulli is not configured".to_string(),
+                    reason: "active_window condition is used but tautulli is not configured"
+                        .to_string(),
                 });
             }
         }
@@ -150,9 +149,10 @@ impl BalancingConfig {
     /// Check if any strategy uses `active_window` condition
     fn has_active_window_conditions(&self) -> bool {
         self.strategies.iter().any(|strategy| {
-            strategy.conditions.iter().any(|condition| {
-                matches!(condition, ConditionConfig::ActiveWindow { .. })
-            })
+            strategy
+                .conditions
+                .iter()
+                .any(|condition| matches!(condition, ConditionConfig::ActiveWindow { .. }))
         })
     }
 }

@@ -1,6 +1,6 @@
-use super::{normalize_show_name, HistoryItem};
+use super::{HistoryItem, normalize_show_name};
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// User's watch progress for a show
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,7 +14,13 @@ pub struct ShowProgress {
 }
 
 impl ShowProgress {
-    const fn new(user: String, show_name: String, season: u32, episode: u32, timestamp: u64) -> Self {
+    const fn new(
+        user: String,
+        show_name: String,
+        season: u32,
+        episode: u32,
+        timestamp: u64,
+    ) -> Self {
         let global_index = (season - 1) * 100 + episode;
         Self {
             user,
@@ -102,7 +108,10 @@ pub fn build_progress(
 fn calculate_cutoff_time(days_back: u32) -> u64 {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
+        .unwrap_or_else(|_| {
+            log::warn!("System time is before Unix epoch, using 0");
+            Duration::from_secs(0)
+        })
         .as_secs();
 
     let seconds_back = u64::from(days_back) * 24 * 60 * 60;
@@ -252,7 +261,10 @@ mod tests {
             .unwrap();
         assert_eq!(bb.last_watched_episode, 5);
 
-        let office = progress.iter().find(|p| p.show_name == "The Office").unwrap();
+        let office = progress
+            .iter()
+            .find(|p| p.show_name == "The Office")
+            .unwrap();
         assert_eq!(office.last_watched_episode, 3);
     }
 

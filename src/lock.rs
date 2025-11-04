@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, SystemTime};
 
-use crate::{error::AppError, Tier};
+use crate::{Tier, error::AppError};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct LockInfo {
@@ -54,7 +54,10 @@ impl TierLockGuard {
                 // Write process info to lock file
                 let info = LockInfo {
                     pid: process::id(),
-                    hostname: hostname::get().map_or_else(|_| "unknown".to_string(), |h| h.to_string_lossy().to_string()),
+                    hostname: hostname::get().map_or_else(
+                        |_| "unknown".to_string(),
+                        |h| h.to_string_lossy().to_string(),
+                    ),
                     started_at: SystemTime::now(),
                     command: std::env::args().collect::<Vec<_>>().join(" "),
                 };
@@ -256,7 +259,10 @@ mod tests {
         let result = TierLockGuard::try_lock_tiers(&[tier.clone()]);
         assert!(result.is_err());
 
-        if let Err(AppError::TierLocked { tier: tier_name, .. }) = result {
+        if let Err(AppError::TierLocked {
+            tier: tier_name, ..
+        }) = result
+        {
             assert_eq!(tier_name, "conflict");
         } else {
             panic!("Expected TierLocked error");
@@ -285,7 +291,7 @@ mod tests {
 
         // Write valid LockInfo so it won't be cleaned up as stale
         let lock_info = LockInfo {
-            pid: process::id(),  // Use current process ID so it won't be seen as stale
+            pid: process::id(), // Use current process ID so it won't be seen as stale
             hostname: "test-host".to_string(),
             started_at: SystemTime::now(),
             command: "test".to_string(),
@@ -303,10 +309,7 @@ mod tests {
         let lock_path2 = tier2.path.join(".mergerfs-balancer.lock");
         if lock_path2.exists() {
             // If it exists, it should not be locked
-            let test_lock = OpenOptions::new()
-                .write(true)
-                .open(&lock_path2)
-                .unwrap();
+            let test_lock = OpenOptions::new().write(true).open(&lock_path2).unwrap();
             assert!(test_lock.try_lock_exclusive().is_ok());
         }
 

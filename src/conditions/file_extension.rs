@@ -3,16 +3,10 @@ use crate::FileInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtensionMode {
-    /// Whitelist: file MUST have one of the extensions (default)
+    /// Whitelist: file MUST have one of the extensions
     Whitelist,
     /// Blacklist: file must NOT have any of the extensions
     Blacklist,
-}
-
-impl Default for ExtensionMode {
-    fn default() -> Self {
-        Self::Whitelist
-    }
 }
 
 /// Condition that checks file extension
@@ -239,10 +233,5 @@ mod tests {
 
         assert!(condition.matches(&create_test_file("/test/movie.mkv"), &context));
         assert!(!condition.matches(&create_test_file("/test/movie.mp4"), &context));
-    }
-
-    #[test]
-    fn test_extension_mode_default() {
-        assert_eq!(ExtensionMode::default(), ExtensionMode::Whitelist);
     }
 }
