@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/leonidbkh/tierflow/workflows/CI/badge.svg)](https://github.com/leonidbkh/tierflow/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.91%2B-blue.svg)](https://www.rust-lang.org)
 
 Automatically moves files between storage tiers (NVMe, SSD, HDD) based on simple rules in a config file.
 
