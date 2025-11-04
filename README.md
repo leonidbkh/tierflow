@@ -17,6 +17,15 @@ curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/install.sh 
 
 Or download binary from [GitHub Releases](https://github.com/leonidbkh/tierflow/releases).
 
+## Updating
+
+**Update to latest version:**
+```bash
+curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/update.sh | sh
+```
+
+This will update the binary without touching your config or systemd service.
+
 ## Quick Start
 
 After installation, edit the config file at `/etc/tierflow/config.yaml`:
