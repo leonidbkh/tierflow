@@ -1,0 +1,141 @@
+# mergerfs-balancer configuration example
+
+# Mover configuration (optional, defaults to rsync)
+# This defines how files are moved between tiers
+mover:
+  type: rsync        # Options: rsync (for real movement), dry_run (for testing)
+  extra_args: []     # Additional rsync arguments, e.g., ["--bwlimit=10000"] for 10MB/s limit
+
+# Tautulli integration (optional) - for smart TV show episode management
+# Uncomment this section to enable active viewing window feature
+# tautulli:
+#   url: "http://localhost:8181"      # Tautulli base URL
+#   api_key: "your-api-key-here"      # Get from Tautulli Settings -> Web Interface -> API Key
+#   history_length: 1000               # Number of history items to fetch (default: 1000)
+#   watched_threshold: 90              # % complete to consider "watched" (default: 90)
+#   days_back: 30                      # Only consider shows watched in last N days (default: 30)
+#   backward_episodes: 2               # Keep N episodes before currently watched (default: 2)
+#   forward_episodes: 5                # Keep N episodes after currently watched (default: 5)
+#
+# Example: If user watched Breaking Bad S02E05:
+#   - backward_episodes: 2  → keep S02E03, S02E04, S02E05
+#   - forward_episodes: 5   → keep S02E06, S02E07, S02E08, S02E09, S02E10
+#   Result: Episodes S02E03-S02E10 stay on fast cache, others move to storage
+#
+# Multi-user support: Windows merge across all active users
+# Cross-season support: Windows can span season boundaries automatically
+
+# Tiers define storage locations with priorities
+# Lower priority number = faster/more expensive storage
+tiers:
+  - name: cache
+    path: /mnt/cache
+    priority: 1  # Fastest tier (NVMe, SSD)
+    max_usage_percent: 85  # Don't fill cache above 85% (leave room for other clients)
+
+  - name: storage
+    path: /mnt/storage
+    priority: 10  # Slower tier (HDDs)
+    max_usage_percent: 95  # HDDs can be filled more densely
+
+# Strategies define file placement rules
+# Higher priority strategy wins when multiple strategies match
+strategies:
+  # HIGHEST PRIORITY: Keep actively watched TV show episodes on cache
+  # Requires Tautulli configuration (see above)
+  # Uncomment this strategy when you enable Tautulli
+  # - name: active_episodes_on_cache
+  #   priority: 90  # Highest priority - overrides other strategies
+  #   conditions:
+  #     - type: active_window
+  #       name: "viewing-window"
+  #   preferred_tiers:
+  #     - cache
+  #   required: false
+  #
+  # How it works:
+  # - Fetches viewing history from Tautulli
+  # - Calculates "active window" per user (backward + forward episodes)
+  # - Keeps those episodes on fast cache for quick access
+  # - Automatically handles multi-user scenarios (windows merge)
+  # - Supports cross-season windows (e.g., S01E99 -> S02E01)
+
+  # Keep large files (>5GB) on storage tier
+  - name: large_files_to_storage
+    priority: 60
+    conditions:
+      - type: file_size
+        min_size_mb: 5000  # Files larger than 5GB
+    preferred_tiers:
+      - storage
+    required: false
+
+  # Exclude sample/trailer files from cache
+  - name: exclude_samples_from_cache
+    priority: 55
+    conditions:
+      - type: filename_contains
+        patterns: ["sample", "trailer", "preview"]
+        mode: blacklist  # Files WITHOUT these strings
+        case_sensitive: false  # Case-insensitive matching
+    preferred_tiers:
+      - cache
+    required: false
+  # Keep downloads folder on cache (high priority for active downloads)
+  - name: keep_downloads_on_cache
+    priority: 50
+    conditions:
+      - type: path_prefix
+        prefix: "downloads"  # Matches /mnt/*/downloads/*
+    preferred_tiers:
+      - cache
+    required: false
+
+  # Move old files from series_lib to storage
+  # EXCEPT incomplete downloads (blacklist mode)
+  - name: old_series_to_storage
+    priority: 40
+    conditions:
+      - type: path_prefix
+        prefix: "series_lib"  # Only files in series_lib folder
+      - type: max_age
+        max_age_hours: 168  # 7 days
+      - type: file_extension
+        extensions: ["!qB", "part", "tmp"]  # Exclude incomplete files
+        mode: blacklist  # Files WITHOUT these extensions
+    preferred_tiers:
+      - storage
+    required: false
+
+  # Move ALL old files to storage
+  # EXCEPT: incomplete downloads, files in downloads folder, and small files
+  - name: old_large_files_to_storage
+    priority: 10
+    conditions:
+      - type: max_age
+        max_age_hours: 168  # 7 days
+      - type: file_size
+        min_size_mb: 100  # Only files larger than 100MB
+      - type: file_extension
+        extensions: ["!qB", "part", "tmp"]  # Don't move incomplete downloads
+        mode: blacklist
+      - type: path_prefix
+        prefix: "downloads"  # Don't move files from downloads folder
+        mode: blacklist
+      - type: filename_contains
+        patterns: ["sample", "SAMPLE", "trailer"]  # Don't move sample/trailer files
+        mode: blacklist
+        case_sensitive: false
+    preferred_tiers:
+      - storage
+    required: false
+
+  # Default: keep everything on cache
+  - name: default_keep_cache
+    priority: 1
+    conditions:
+      - type: always_true
+    preferred_tiers:
+      - cache
+      - storage  # Fallback if cache is full
+    required: false

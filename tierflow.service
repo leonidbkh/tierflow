@@ -1,0 +1,42 @@
+[Unit]
+Description=Tierflow Storage Balancer Daemon
+Documentation=https://github.com/leonidbkh/tierflow
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Path to binary and config
+ExecStart=/usr/local/bin/tierflow daemon -c /etc/tierflow/config.yaml -i 3600
+
+# Restart policy
+Restart=on-failure
+RestartSec=60
+
+# Resource limits
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tierflow
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/mnt
+
+# Allow access to tier directories
+# Adjust these paths to match your tier configurations
+ReadWritePaths=/mnt/tier1-nvme
+ReadWritePaths=/mnt/tier2-storage
+
+[Install]
+WantedBy=multi-user.target

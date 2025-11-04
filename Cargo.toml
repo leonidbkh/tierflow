@@ -1,0 +1,64 @@
+[package]
+name = "tierflow"
+version = "0.1.0"
+edition = "2024"
+description = "Intelligent strategy-based file balancing system for tiered storage with Tautulli (Plex) integration"
+license = "MIT"
+repository = "https://github.com/leonidbkh/tierflow"
+readme = "README.md"
+keywords = ["storage", "tiered", "balancer", "mergerfs", "plex"]
+categories = ["filesystem", "command-line-utilities"]
+authors = ["Leonid Bakhmetev <leonidbkh@pm.me>"]
+
+[dependencies]
+clap = { version = "4.5.51", features = ["derive"] }
+ctrlc = "3.4"
+env_logger = "0.11.8"
+fs2 = "0.4.3"
+hostname = "0.4"
+log = "0.4.28"
+regex = "1.11"
+lazy-regex = "3.3"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+thiserror = "2.0.17"
+anyhow = "1.0.100"
+tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros", "time"] }
+walkdir = "2.5.0"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal", "process"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[lints.clippy]
+# Enable all default clippy lints (catches bugs and bad practices)
+all = { level = "warn", priority = -1 }
+
+# Enable stricter pedantic lints (code quality)
+pedantic = { level = "warn", priority = -1 }
+
+# Disable overly pedantic lints that add noise without value
+module_name_repetitions = "allow"      # Often false positives
+missing_errors_doc = "allow"           # Too noisy for internal functions
+missing_panics_doc = "allow"           # Too noisy for internal functions
+must_use_candidate = "allow"           # Too many false positives
+return_self_not_must_use = "allow"     # Builder pattern doesn't always need must_use
+similar_names = "allow"                # False positives with common names
+cast_precision_loss = "allow"          # u64→f64 for percentages is fine
+cast_possible_truncation = "allow"     # f64→u64 for percentages is intentional
+cast_sign_loss = "allow"               # Percentages are always positive
+cast_possible_wrap = "allow"           # Timestamp conversions are safe
+too_many_lines = "allow"               # Some functions are complex by nature
+unused_self = "allow"                  # Trait methods may not use self
+items_after_statements = "allow"       # Local constants are clearer inline
+match_same_arms = "allow"              # Sometimes duplication aids readability
+manual_let_else = "allow"              # Old style is sometimes clearer
+
+# Keep important lints that catch real issues
+unwrap_used = "warn"                   # Prefer proper error handling
+expect_used = "warn"                   # Document why expect is safe
+panic = "warn"                         # Avoid panics in library code
