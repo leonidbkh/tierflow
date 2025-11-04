@@ -212,8 +212,15 @@ EOF
 
 # Ask about systemd installation
 ask_install_systemd() {
+    # Check if we have a tty
+    if [ ! -t 0 ]; then
+        info "No interactive terminal detected"
+        info "Skipping systemd installation (run install script directly to enable)"
+        return
+    fi
+
     printf '\n%s' "${BOLD}Install systemd service?${RESET} (requires sudo) [y/N]: "
-    read -r answer
+    read -r answer </dev/tty
 
     case "$answer" in
         [yY]|[yY][eE][sS])
@@ -221,7 +228,7 @@ ask_install_systemd() {
             ;;
         *)
             info "Skipping systemd installation"
-            info "You can install it later: sudo cp tierflow.service /etc/systemd/system/"
+            info "Manual install: curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/tierflow.service | sudo tee /etc/systemd/system/tierflow.service"
             ;;
     esac
 }
