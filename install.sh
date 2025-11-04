@@ -131,39 +131,49 @@ download_binary() {
 
 # Install binary
 install_binary() {
-    local install_dir
+    local install_dir="/usr/local/bin"
 
-    # Try to install to /usr/local/bin first (system-wide)
-    if [ -w "/usr/local/bin" ]; then
-        install_dir="/usr/local/bin"
-    # If not writable, try ~/.local/bin (user-local)
-    elif mkdir -p "$HOME/.local/bin" 2>/dev/null; then
-        install_dir="$HOME/.local/bin"
+    info "Installing to $install_dir..."
 
-        # Add to PATH if not already there
-        case ":$PATH:" in
-            *":$install_dir:"*) ;;
-            *)
-                warn "$install_dir is not in your PATH"
-                info "Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
-                printf '  %s\n' "export PATH=\"\$HOME/.local/bin:\$PATH\""
-                ;;
-        esac
-    else
-        error "Cannot find suitable installation directory"
-        error "Please install manually or run with sudo"
+    # Try without sudo first
+    if mv "$BINARY_PATH" "$install_dir/tierflow" 2>/dev/null; then
+        success "Tierflow installed to $install_dir/tierflow"
+        return
+    fi
+
+    # Try with sudo
+    info "Installation requires sudo..."
+    if sudo mv "$BINARY_PATH" "$install_dir/tierflow" 2>/dev/null; then
+        success "Tierflow installed to $install_dir/tierflow"
+        return
+    fi
+
+    # Fallback to user-local installation
+    warn "Cannot install to $install_dir, installing to ~/.local/bin instead"
+    install_dir="$HOME/.local/bin"
+
+    if ! mkdir -p "$install_dir" 2>/dev/null; then
+        error "Cannot create $install_dir"
         exit 1
     fi
 
     info "Installing to $install_dir..."
-
     if ! mv "$BINARY_PATH" "$install_dir/tierflow"; then
         error "Failed to install binary"
-        error "You may need to run this script with sudo"
         exit 1
     fi
 
     success "Tierflow installed to $install_dir/tierflow"
+
+    # Check if in PATH
+    case ":$PATH:" in
+        *":$install_dir:"*) ;;
+        *)
+            warn "$install_dir is not in your PATH"
+            info "Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
+            printf '  %s\n' "export PATH=\"\$HOME/.local/bin:\$PATH\""
+            ;;
+    esac
 }
 
 # Verify installation
@@ -210,50 +220,31 @@ EOF
     fi
 }
 
-# Ask about systemd installation
-ask_install_systemd() {
-    # Check if we have a tty
-    if [ ! -t 0 ]; then
-        info "No interactive terminal detected"
-        info "Skipping systemd installation (run install script directly to enable)"
+# Install systemd service
+install_systemd() {
+    # Skip if systemctl not available
+    if ! command -v systemctl >/dev/null 2>&1; then
+        info "systemd not detected, skipping service installation"
+        info "Run manually: tierflow daemon --config /etc/tierflow/config.yaml"
         return
     fi
 
-    printf '\n%s' "${BOLD}Install systemd service?${RESET} (requires sudo) [y/N]: "
-    read -r answer </dev/tty
-
-    case "$answer" in
-        [yY]|[yY][eE][sS])
-            install_systemd
-            ;;
-        *)
-            info "Skipping systemd installation"
-            info "Manual install: curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/tierflow.service | sudo tee /etc/systemd/system/tierflow.service"
-            ;;
-    esac
-}
-
-# Install systemd service
-install_systemd() {
     local service_file="/etc/systemd/system/tierflow.service"
 
     info "Installing systemd service..."
 
     # Download service file
     if ! sudo curl -sSfL "https://raw.githubusercontent.com/leonidbkh/tierflow/main/tierflow.service" -o "$service_file" 2>/dev/null; then
-        error "Failed to download service file"
-        return 1
+        warn "Failed to download service file"
+        info "Manual install: curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/tierflow.service | sudo tee /etc/systemd/system/tierflow.service"
+        return
     fi
 
     # Reload systemd
-    if command -v systemctl >/dev/null 2>&1; then
-        sudo systemctl daemon-reload
-        success "Systemd service installed to $service_file"
-        info "Enable and start: sudo systemctl enable --now tierflow"
-        info "IMPORTANT: Edit /etc/tierflow/config.yaml first!"
-    else
-        warn "systemctl not found"
-    fi
+    sudo systemctl daemon-reload
+    success "Systemd service installed to $service_file"
+    info "Enable and start: sudo systemctl enable --now tierflow"
+    info "IMPORTANT: Edit /etc/tierflow/config.yaml first!"
 }
 
 # Print next steps
@@ -262,7 +253,14 @@ print_next_steps() {
     printf '  1. Edit config: %s\n' "${BLUE}sudo nano /etc/tierflow/config.yaml${RESET}"
     printf '  2. Check examples: %s\n' "${BLUE}https://github.com/leonidbkh/tierflow/blob/main/config.example.yaml${RESET}"
     printf '  3. Test with dry-run: %s\n' "${BLUE}tierflow rebalance --config /etc/tierflow/config.yaml --dry-run${RESET}"
-    printf '  4. Start daemon: %s\n' "${BLUE}sudo systemctl enable --now tierflow${RESET}"
+
+    # Only show systemd steps if service was installed
+    if [ -f "/etc/systemd/system/tierflow.service" ]; then
+        printf '  4. Start daemon: %s\n' "${BLUE}sudo systemctl enable --now tierflow${RESET}"
+    else
+        printf '  4. Install systemd service: %s\n' "${BLUE}curl -sSfL https://raw.githubusercontent.com/leonidbkh/tierflow/main/install.sh | sh${RESET}"
+        printf '     Or run manually: %s\n' "${BLUE}tierflow daemon --config /etc/tierflow/config.yaml${RESET}"
+    fi
     printf '\n'
 }
 
@@ -280,7 +278,7 @@ main() {
 
     printf '\n'
     install_config
-    ask_install_systemd
+    install_systemd
 
     printf '\n'
     success "Tierflow has been installed successfully!"

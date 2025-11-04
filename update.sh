@@ -146,18 +146,17 @@ download_binary() {
 update_binary() {
     info "Updating $INSTALL_PATH..."
 
-    # Check if we need sudo
-    if [ -w "$INSTALL_PATH" ]; then
-        if ! mv "$BINARY_PATH" "$INSTALL_PATH"; then
-            error "Failed to update binary"
-            exit 1
-        fi
-    else
-        info "Updating requires sudo..."
-        if ! sudo mv "$BINARY_PATH" "$INSTALL_PATH"; then
-            error "Failed to update binary"
-            exit 1
-        fi
+    # Try without sudo first
+    if mv "$BINARY_PATH" "$INSTALL_PATH" 2>/dev/null; then
+        success "Updated to $VERSION"
+        return
+    fi
+
+    # Try with sudo
+    info "Update requires sudo..."
+    if ! sudo mv "$BINARY_PATH" "$INSTALL_PATH"; then
+        error "Failed to update binary"
+        exit 1
     fi
 
     success "Updated to $VERSION"
