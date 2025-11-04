@@ -27,7 +27,7 @@ pub fn default_config_path() -> PathBuf {
 
 #[derive(Parser)]
 #[command(name = "tierflow")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "Automatic file balancing for tiered storage", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
