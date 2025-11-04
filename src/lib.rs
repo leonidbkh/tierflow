@@ -15,7 +15,7 @@ pub mod tautulli;
 pub mod tier;
 
 pub use balancer::{Balancer, BalancingPlan, PlacementDecision, PlanWarning, TierUsageProjection};
-pub use cli::{Cli, Commands};
+pub use cli::{default_config_path, Cli, Commands};
 pub use conditions::{
     ActiveWindowCondition, AlwaysTrueCondition, Condition, ContainsMode, Context, ExtensionMode,
     FileExtensionCondition, FileSizeCondition, FilenameContainsCondition, MaxAgeCondition,

@@ -13,6 +13,7 @@ authors = ["Leonid Bakhmetev <leonidbkh@pm.me>"]
 [dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
 ctrlc = "3.4"
+dirs = "5.0"
 env_logger = "0.11.8"
 fs2 = "0.4.3"
 hostname = "0.4"
