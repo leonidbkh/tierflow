@@ -31,7 +31,7 @@ impl TierLockGuard {
         let mut locks = Vec::new();
 
         for tier in sorted_tiers {
-            let lock_path = tier.path.join(".mergerfs-balancer.lock");
+            let lock_path = tier.path.join(".tierflow.lock");
 
             // Clean up stale locks from dead processes
             if lock_path.exists() {
@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(guard.locks.len(), 1);
 
         // Lock file should exist
-        let lock_path = tier.path.join(".mergerfs-balancer.lock");
+        let lock_path = tier.path.join(".tierflow.lock");
         assert!(lock_path.exists());
 
         drop(guard);
@@ -234,14 +234,14 @@ mod tests {
         assert_eq!(guard.locks.len(), 2);
 
         // Both lock files should exist
-        assert!(tier1.path.join(".mergerfs-balancer.lock").exists());
-        assert!(tier2.path.join(".mergerfs-balancer.lock").exists());
+        assert!(tier1.path.join(".tierflow.lock").exists());
+        assert!(tier2.path.join(".tierflow.lock").exists());
 
         drop(guard);
 
         // Both lock files should be removed
-        assert!(!tier1.path.join(".mergerfs-balancer.lock").exists());
-        assert!(!tier2.path.join(".mergerfs-balancer.lock").exists());
+        assert!(!tier1.path.join(".tierflow.lock").exists());
+        assert!(!tier2.path.join(".tierflow.lock").exists());
 
         // Cleanup
         fs::remove_dir_all(&tier1.path).ok();
@@ -278,7 +278,7 @@ mod tests {
         let tier2 = create_test_tier("atomic2");
 
         // Lock first tier manually with proper LockInfo
-        let lock_path1 = tier1.path.join(".mergerfs-balancer.lock");
+        let lock_path1 = tier1.path.join(".tierflow.lock");
         let mut manual_lock = OpenOptions::new()
             .create(true)
             .write(true)
@@ -306,7 +306,7 @@ mod tests {
         assert!(result.is_err());
 
         // Second tier should not have a lock file (atomic failure)
-        let lock_path2 = tier2.path.join(".mergerfs-balancer.lock");
+        let lock_path2 = tier2.path.join(".tierflow.lock");
         if lock_path2.exists() {
             // If it exists, it should not be locked
             let test_lock = OpenOptions::new().write(true).open(&lock_path2).unwrap();
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn test_stale_lock_cleanup() {
         let tier = create_test_tier("stale");
-        let lock_path = tier.path.join(".mergerfs-balancer.lock");
+        let lock_path = tier.path.join(".tierflow.lock");
 
         // Create a stale lock file with fake PID
         let stale_info = LockInfo {

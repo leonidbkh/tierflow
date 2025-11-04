@@ -112,6 +112,14 @@ impl Tier {
                 }
             })
             .filter(|e| e.file_type().is_file())
+            .filter(|e| {
+                // Skip lock file
+                if let Some(name) = e.file_name().to_str() {
+                    name != ".tierflow.lock"
+                } else {
+                    true
+                }
+            })
             .filter_map(|e| {
                 let path = e.path().to_path_buf();
                 match FileInfo::from_path(path.clone()) {

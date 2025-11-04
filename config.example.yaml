@@ -1,4 +1,4 @@
-# mergerfs-balancer configuration example
+# Tierflow configuration example
 
 # Mover configuration (optional, defaults to rsync)
 # This defines how files are moved between tiers
