@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-blue.svg)](https://www.rust-lang.org)
 
+> **⚠️ ALPHA SOFTWARE**: This project is in active development and testing. While functional, it may contain bugs and the API may change. Use with caution on production data. Always test with `--dry-run` first and keep backups.
+
 Automatically moves files between storage tiers (NVMe, SSD, HDD) based on simple rules in a config file.
 
 **Example use case**: Keep fresh files on fast SSD, automatically move them to slow HDDs after a week. Or vice versa - automatically pull needed files to the fast tier.
