@@ -19,7 +19,7 @@ Or download binary from [GitHub Releases](https://github.com/leonidbkh/tierflow/
 
 ## Quick Start
 
-1. Create `config.yaml`:
+After installation, edit the config file at `/etc/tierflow/config.yaml`:
 
 ```yaml
 tiers:
@@ -54,19 +54,17 @@ strategies:
       - archive
 ```
 
-2. Run with `--dry-run` to see what would happen:
-```bash
-tierflow rebalance --config config.yaml --dry-run
-```
+Then test it:
 
-3. If everything looks good, run for real:
 ```bash
-tierflow rebalance --config config.yaml
-```
+# Test with dry-run (shows what would happen)
+tierflow rebalance --config /etc/tierflow/config.yaml --dry-run
 
-4. For automatic runs every hour:
-```bash
-tierflow daemon --config config.yaml --interval 3600
+# If everything looks good, run for real
+tierflow rebalance --config /etc/tierflow/config.yaml
+
+# Or enable automatic daemon mode
+sudo systemctl enable --now tierflow
 ```
 
 ## How It Works
@@ -109,9 +107,9 @@ Available filters:
 | `always_true` | All files | For default strategy |
 | `max_age` | Files older than N hours | `max_age_hours: 168` |
 | `file_size` | Files in size range | `min_size_mb: 100, max_size_mb: 5000` |
-| `file_extension` | By extension | `extensions: ["mkv", "mp4"]` |
-| `path_prefix` | Files in specific folder | `prefix: "downloads"` |
-| `filename_contains` | By substring in name | `patterns: ["sample", "trailer"]` |
+| `file_extension` | By extension | `extensions: ["mkv", "mp4"], mode: whitelist` |
+| `path_prefix` | Files in specific folder | `prefix: "downloads", mode: whitelist` |
+| `filename_contains` | By substring in name | `patterns: ["sample"], mode: blacklist` |
 
 All conditions in one strategy must match (AND logic).
 
@@ -164,6 +162,7 @@ strategies:
     conditions:
       - type: path_prefix
         prefix: "downloads"
+        mode: whitelist
     preferred_tiers:
       - ssd
 
@@ -229,44 +228,27 @@ strategies:
 
 Shows what would be done without actually moving files:
 ```bash
-tierflow rebalance --config config.yaml --dry-run
+tierflow rebalance --config /etc/tierflow/config.yaml --dry-run
 ```
 
 ### One-time run
 
 Performs file movement once:
 ```bash
-tierflow rebalance --config config.yaml
+tierflow rebalance --config /etc/tierflow/config.yaml
 ```
 
 ### Daemon mode
 
-Runs automatic file movement every N seconds:
+The install script can set up systemd service for you. Or manually:
+
 ```bash
-# Every hour
-tierflow daemon --config config.yaml --interval 3600
-```
+# Run daemon manually (every hour)
+tierflow daemon --config /etc/tierflow/config.yaml --interval 3600
 
-For systemd, create `/etc/systemd/system/tierflow.service`:
-
-```ini
-[Unit]
-Description=Tierflow daemon
-After=network.target
-
-[Service]
-Type=simple
-User=your-user
-ExecStart=/usr/local/bin/tierflow daemon --config /path/to/config.yaml --interval 3600
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then:
-```bash
+# Or use systemd (already installed if you chose 'y' during installation)
 sudo systemctl enable --now tierflow
+sudo systemctl status tierflow
 ```
 
 ## How File Movement Works
