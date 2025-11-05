@@ -78,6 +78,34 @@ tierflow rebalance --config /etc/tierflow/config.yaml
 sudo systemctl enable --now tierflow
 ```
 
+## Viewing Logs
+
+**Check daemon logs:**
+```bash
+# View all logs
+sudo journalctl -u tierflow
+
+# Follow logs in real-time
+sudo journalctl -u tierflow -f
+
+# Logs from last hour
+sudo journalctl -u tierflow --since "1 hour ago"
+
+# Last 100 lines
+sudo journalctl -u tierflow -n 100
+```
+
+**Run with debug logging:**
+```bash
+# For manual runs
+RUST_LOG=debug tierflow rebalance --config /etc/tierflow/config.yaml --dry-run
+
+# For systemd service (edit /etc/systemd/system/tierflow.service)
+# Add under [Service]:
+# Environment="RUST_LOG=debug"
+# Then: sudo systemctl daemon-reload && sudo systemctl restart tierflow
+```
+
 ## How It Works
 
 ### Tiers (disks)
