@@ -166,7 +166,7 @@ mod tests {
     fn create_test_tier(name: &str) -> Tier {
         let temp_dir = std::env::temp_dir().join(format!("executor_test_{name}"));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, 1, None).unwrap()
+        Tier::new(name.to_string(), temp_dir, 1, None, None).unwrap()
     }
 
     fn create_test_file_in_tier(tier: &Tier, name: &str, size: u64) -> FileInfo {

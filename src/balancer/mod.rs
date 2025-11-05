@@ -195,13 +195,19 @@ impl Balancer {
                 strategy: strategy.name.clone(),
                 priority: strategy.priority,
             }
-        } else {
+        } else if current_tier.can_demote() {
             PlacementDecision::Demote {
                 file,
                 from_tier: current_tier.name.clone(),
                 to_tier: ideal_tier.name.clone(),
                 strategy: strategy.name.clone(),
                 priority: strategy.priority,
+            }
+        } else {
+            // Tier usage below min threshold, keep file in place
+            PlacementDecision::Stay {
+                file,
+                current_tier: current_tier.name.clone(),
             }
         }
     }
@@ -346,7 +352,7 @@ mod tests {
     fn create_test_tier(name: &str, priority: u32, max_usage: Option<u64>) -> Tier {
         let temp_dir = env::temp_dir().join(format!("balancer_test_{name}"));
         fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, priority, max_usage).unwrap()
+        Tier::new(name.to_string(), temp_dir, priority, max_usage, None).unwrap()
     }
 
     #[test]

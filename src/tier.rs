@@ -10,6 +10,7 @@ pub struct Tier {
     pub path: PathBuf,
     pub priority: u32,
     pub max_usage_percent: Option<u64>,
+    pub min_usage_percent: Option<u64>,
 }
 
 impl Tier {
@@ -18,6 +19,7 @@ impl Tier {
         path: PathBuf,
         priority: u32,
         max_usage_percent: Option<u64>,
+        min_usage_percent: Option<u64>,
     ) -> io::Result<Self> {
         if !path.exists() {
             return Err(io::Error::new(
@@ -47,11 +49,31 @@ impl Tier {
             }
         }
 
+        if let Some(min) = min_usage_percent
+            && min > 100
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("min_usage_percent must be <= 100, got {min}"),
+            ));
+        }
+
+        // Validate min < max if both set
+        if let (Some(min), Some(max)) = (min_usage_percent, max_usage_percent)
+            && min >= max
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("min_usage_percent ({min}) must be less than max_usage_percent ({max})"),
+            ));
+        }
+
         Ok(Self {
             name,
             path,
             priority,
             max_usage_percent,
+            min_usage_percent,
         })
     }
 
@@ -74,6 +96,16 @@ impl Tier {
             return 0;
         }
         ((total - free) as f64 / total as f64 * 100.0) as u64
+    }
+
+    /// Check if files can be demoted from this tier
+    /// Returns false if tier usage is below `min_usage_percent` threshold
+    pub fn can_demote(&self) -> bool {
+        if let Some(min) = self.min_usage_percent {
+            self.usage_percent() >= min
+        } else {
+            true
+        }
     }
 
     pub fn has_space_for(&self, size: u64) -> bool {
@@ -148,7 +180,7 @@ mod tests {
     #[test]
     fn test_tier_creation_valid_path() {
         let temp_dir = env::temp_dir();
-        let tier = Tier::new("test-tier".to_string(), temp_dir.clone(), 1, None);
+        let tier = Tier::new("test-tier".to_string(), temp_dir.clone(), 1, None, None);
         assert!(tier.is_ok(), "Tier should be created successfully");
 
         let tier = tier.unwrap();
@@ -161,7 +193,7 @@ mod tests {
     #[test]
     fn test_tier_creation_invalid_path() {
         let nonexistent = PathBuf::from("/nonexistent/path/that/does/not/exist");
-        let result = Tier::new("test".to_string(), nonexistent, 1, None);
+        let result = Tier::new("test".to_string(), nonexistent, 1, None, None);
 
         assert!(result.is_err(), "Should return error for nonexistent path");
         let err = result.unwrap_err();
@@ -174,7 +206,7 @@ mod tests {
         let temp_file = temp_dir.join("test_file.txt");
         fs::write(&temp_file, b"test").unwrap();
 
-        let result = Tier::new("test".to_string(), temp_file.clone(), 1, None);
+        let result = Tier::new("test".to_string(), temp_file.clone(), 1, None, None);
         assert!(result.is_err(), "Should return error when path is a file");
 
         let err = result.unwrap_err();
@@ -186,7 +218,7 @@ mod tests {
     #[test]
     fn test_tier_disk_space_methods() {
         let temp_dir = env::temp_dir();
-        let tier = Tier::new("test".to_string(), temp_dir, 1, None).unwrap();
+        let tier = Tier::new("test".to_string(), temp_dir, 1, None, None).unwrap();
 
         let total = tier.get_total_space();
         let free = tier.get_free_space();
@@ -205,7 +237,7 @@ mod tests {
     #[test]
     fn test_tier_has_space_for() {
         let temp_dir = env::temp_dir();
-        let tier = Tier::new("test".to_string(), temp_dir, 1, None).unwrap();
+        let tier = Tier::new("test".to_string(), temp_dir, 1, None, None).unwrap();
 
         assert!(tier.has_space_for(1024), "Should have space for 1KB");
 
@@ -221,7 +253,7 @@ mod tests {
         let temp_dir = env::temp_dir().join("test_tier_empty");
         fs::create_dir_all(&temp_dir).unwrap();
 
-        let tier = Tier::new("test".to_string(), temp_dir.clone(), 1, None).unwrap();
+        let tier = Tier::new("test".to_string(), temp_dir.clone(), 1, None, None).unwrap();
         let files = tier.get_all_files();
 
         assert_eq!(files.len(), 0, "Empty directory should have 0 files");
@@ -241,7 +273,7 @@ mod tests {
         fs::create_dir_all(&subdir).unwrap();
         fs::write(subdir.join("file3.txt"), b"content3").unwrap();
 
-        let tier = Tier::new("test".to_string(), temp_dir.clone(), 1, None).unwrap();
+        let tier = Tier::new("test".to_string(), temp_dir.clone(), 1, None, None).unwrap();
         let files = tier.get_all_files();
 
         assert_eq!(files.len(), 3, "Should find 3 files");
@@ -252,7 +284,7 @@ mod tests {
     #[test]
     fn test_tier_clone() {
         let temp_dir = env::temp_dir();
-        let tier1 = Tier::new("original".to_string(), temp_dir, 1, Some(85)).unwrap();
+        let tier1 = Tier::new("original".to_string(), temp_dir, 1, Some(85), None).unwrap();
 
         let tier2 = tier1.clone();
 
@@ -267,30 +299,30 @@ mod tests {
         let temp_dir = env::temp_dir();
 
         // Test max > 100 - should fail
-        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(101));
+        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(101), None);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
 
         // Test max = 0 - should fail (new validation)
-        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(0));
+        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(0), None);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
 
         // Test valid values - should succeed
-        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(1));
+        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(1), None);
         assert!(result.is_ok());
 
-        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(50));
+        let result = Tier::new("test".to_string(), temp_dir.clone(), 1, Some(50), None);
         assert!(result.is_ok());
 
-        let result = Tier::new("test".to_string(), temp_dir, 1, Some(100));
+        let result = Tier::new("test".to_string(), temp_dir, 1, Some(100), None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_tier_has_space_for_with_max_usage() {
         let temp_dir = env::temp_dir();
-        let tier = Tier::new("test".to_string(), temp_dir, 1, Some(50)).unwrap();
+        let tier = Tier::new("test".to_string(), temp_dir, 1, Some(50), None).unwrap();
 
         let total = tier.get_total_space();
         let current_free = tier.get_free_space();

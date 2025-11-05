@@ -32,6 +32,7 @@ tiers:
     path: /mnt/cache
     priority: 1  # Fastest tier (NVMe, SSD)
     max_usage_percent: 85  # Don't fill cache above 85% (leave room for other clients)
+    min_usage_percent: 30  # Don't demote files until cache is at least 30% full (avoid unnecessary moves)
 
   - name: storage
     path: /mnt/storage
