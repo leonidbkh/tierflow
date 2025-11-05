@@ -56,6 +56,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
           files: |
             target/release/tierflow-x86_64-unknown-linux-gnu.tar.gz
             target/release/tierflow-x86_64-unknown-linux-gnu.tar.gz.sha256
