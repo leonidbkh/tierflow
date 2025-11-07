@@ -86,6 +86,27 @@ impl Default for RsyncMover {
     }
 }
 
+impl RsyncMover {
+    /// Check if file is currently open by any process
+    fn is_file_in_use(path: &Path) -> io::Result<bool> {
+        #[cfg(target_os = "linux")]
+        {
+            // Use fuser to check if any process has the file open
+            let output = Command::new("fuser").arg(path.as_os_str()).output()?;
+
+            // fuser returns exit code 0 if processes found
+            Ok(output.status.success())
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = path; // Silence unused warning
+            // On non-Linux, skip the check (no reliable method)
+            Ok(false)
+        }
+    }
+}
+
 impl Mover for RsyncMover {
     fn move_file(&self, source: &Path, destination: &Path) -> io::Result<()> {
         // Check if source exists
@@ -93,6 +114,14 @@ impl Mover for RsyncMover {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("Source file does not exist: {}", source.display()),
+            ));
+        }
+
+        // Check if source file is currently in use
+        if Self::is_file_in_use(source)? {
+            return Err(io::Error::new(
+                io::ErrorKind::ResourceBusy,
+                format!("Source file is currently in use: {}", source.display()),
             ));
         }
 
@@ -148,21 +177,40 @@ impl Mover for RsyncMover {
             fs::create_dir_all(parent)?;
         }
 
-        // Step 1: Copy file with rsync (without removing source)
+        // Step 1: Copy file to temporary name (atomic rename pattern)
+        // This prevents other processes (Tdarr, Plex, etc.) from accessing incomplete files
+        let temp_destination = destination.with_extension(format!(
+            "{}.partial",
+            destination
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ));
+
         let mut cmd = Command::new("rsync");
 
         // Base arguments for file copy (no --remove-source-files!)
+        // -a = archive mode: preserves permissions, timestamps, symlinks, etc.
+        // Equivalent to -rlptgoD (recursive, links, perms, times, group, owner, devices)
         cmd.arg("-av") // Archive mode with verbose
             .arg("--checksum") // Use checksums for verification
             .arg("--progress"); // Show progress during transfer
+
+        // Add Linux-specific options if available
+        #[cfg(target_os = "linux")]
+        {
+            cmd.arg("--xattrs") // Preserve extended attributes
+                .arg("--acl"); // Preserve ACLs
+        }
 
         // Add any extra arguments
         for arg in &self.extra_args {
             cmd.arg(arg);
         }
 
-        // Add source and destination
-        cmd.arg(source.as_os_str()).arg(destination.as_os_str());
+        // Copy to temporary destination first
+        cmd.arg(source.as_os_str())
+            .arg(temp_destination.as_os_str());
 
         log::info!(
             "Copying file: {} -> {}",
@@ -192,21 +240,21 @@ impl Mover for RsyncMover {
             )));
         }
 
-        // Step 2: Verify the file was copied correctly
-        if !destination.exists() {
+        // Step 2: Verify the temporary file was copied correctly
+        if !temp_destination.exists() {
             return Err(io::Error::other(format!(
-                "Destination file was not created: {}",
-                destination.display()
+                "Temporary destination file was not created: {}",
+                temp_destination.display()
             )));
         }
 
         // Step 3: Verify file sizes match
         let source_metadata = fs::metadata(source)?;
-        let dest_metadata = fs::metadata(destination)?;
+        let dest_metadata = fs::metadata(&temp_destination)?;
 
         if source_metadata.len() != dest_metadata.len() {
             // Try to clean up the incomplete copy
-            let _ = fs::remove_file(destination);
+            let _ = fs::remove_file(&temp_destination);
             return Err(io::Error::other(format!(
                 "File size mismatch after copy: source={} bytes, dest={} bytes",
                 source_metadata.len(),
@@ -216,18 +264,117 @@ impl Mover for RsyncMover {
 
         // Step 4: Calculate checksums for both files
         let source_checksum = Self::calculate_checksum(source)?;
-        let dest_checksum = Self::calculate_checksum(destination)?;
+        let dest_checksum = Self::calculate_checksum(&temp_destination)?;
 
         if source_checksum != dest_checksum {
             // Try to clean up the corrupted copy
-            let _ = fs::remove_file(destination);
+            let _ = fs::remove_file(&temp_destination);
             return Err(io::Error::other(format!(
                 "Checksum mismatch after copy: source={source_checksum}, dest={dest_checksum}"
             )));
         }
 
-        // Step 5: Only now, after all verification, remove the source
+        // Step 5: Verify source file hasn't been modified during copy
+        // (Protection against concurrent modifications - check both size and mtime)
+        let source_metadata_after = fs::metadata(source)?;
+
+        if source_metadata_after.len() != source_metadata.len()
+            || source_metadata_after.modified()? != source_metadata.modified()?
+        {
+            log::warn!(
+                "Source file changed during copy! Before: {} bytes @ {:?}, After: {} bytes @ {:?}. Cleaning up stale copy.",
+                source_metadata.len(),
+                source_metadata.modified().ok(),
+                source_metadata_after.len(),
+                source_metadata_after.modified().ok()
+            );
+            // Clean up the stale temporary copy since source was modified
+            let _ = fs::remove_file(&temp_destination);
+            return Err(io::Error::other(format!(
+                "Source file was modified during copy. Stale copy removed: {}",
+                temp_destination.display()
+            )));
+        }
+
+        // Check if source file is in use before deleting
+        if Self::is_file_in_use(source)? {
+            log::warn!(
+                "Source file is now in use by another process. Not deleting: {}",
+                source.display()
+            );
+            // Clean up temporary file
+            let _ = fs::remove_file(&temp_destination);
+            return Err(io::Error::other(format!(
+                "Source file became in use during copy. Not deleting for safety: {}",
+                source.display()
+            )));
+        }
+
+        // Step 6: Double-check temporary destination integrity right before atomic rename
+        // (Protection against bit rot or corruption that happened after initial verification)
+        log::debug!("Performing final destination integrity check before atomic rename");
+        let dest_checksum_final = Self::calculate_checksum(&temp_destination)?;
+
+        if dest_checksum_final != source_checksum {
+            log::error!(
+                "Destination checksum changed after initial verification! Initial: {}, Final: {}",
+                dest_checksum,
+                dest_checksum_final
+            );
+            let _ = fs::remove_file(&temp_destination);
+            return Err(io::Error::other(format!(
+                "Destination file corrupted after verification. Not deleting source for safety: {}",
+                source.display()
+            )));
+        }
+
+        // Step 7: Atomic rename from .partial to final name
+        // This is atomic - file appears instantly, preventing partial file access
+        log::debug!(
+            "Atomically renaming {} -> {}",
+            temp_destination.display(),
+            destination.display()
+        );
+        fs::rename(&temp_destination, destination)?;
+
+        // Step 8: Only now, after atomic rename, remove the source
         fs::remove_file(source)?;
+
+        // Step 9: Clean up empty parent directories
+        // Walk up the directory tree and remove empty directories
+        if let Some(mut parent) = source.parent() {
+            while let Some(parent_path) = parent.parent() {
+                // Try to remove the directory - will only succeed if empty
+                match fs::remove_dir(parent) {
+                    Ok(()) => {
+                        log::debug!("Removed empty directory: {}", parent.display());
+                        parent = parent_path;
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {
+                        // Directory not empty, stop here
+                        break;
+                    }
+                    Err(e) => {
+                        // Other error (permissions, etc.) - log but don't fail the operation
+                        log::debug!("Could not remove directory {}: {}", parent.display(), e);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Step 10: Verify destination still exists after source deletion
+        // (Protection against race condition where something deleted destination)
+        if !destination.exists() {
+            log::error!(
+                "Destination file disappeared after source deletion: {}",
+                destination.display()
+            );
+            return Err(io::Error::other(format!(
+                "Destination file was deleted by another process after source removal: {}. DATA LOSS OCCURRED!",
+                destination.display()
+            )));
+        }
 
         log::info!(
             "Successfully moved: {} -> {} (checksum: {})",
@@ -323,6 +470,9 @@ mod tests {
         let mover = RsyncMover::new();
         let result = mover.move_file(&source_path, &dest_path);
 
+        if let Err(ref e) = result {
+            eprintln!("Move failed: {}", e);
+        }
         assert!(result.is_ok());
         assert!(!source_path.exists(), "Source file should be removed");
         assert!(dest_path.exists(), "Destination file should exist");
@@ -330,5 +480,198 @@ mod tests {
         // Check content
         let content = fs::read_to_string(&dest_path).unwrap();
         assert_eq!(content, "test content");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_source_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("nonexistent.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_identical_destination_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("source.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        // Create identical files
+        fs::write(&source_path, "identical content").unwrap();
+        fs::write(&dest_path, "identical content").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        // Should succeed and remove source
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source should be removed");
+        assert!(dest_path.exists(), "Destination should still exist");
+
+        let content = fs::read_to_string(&dest_path).unwrap();
+        assert_eq!(content, "identical content");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_different_destination_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("source.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        // Create different files
+        fs::write(&source_path, "new content").unwrap();
+        fs::write(&dest_path, "old content").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        // Should succeed and create backup
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source should be removed");
+        assert!(dest_path.exists(), "New destination should exist");
+
+        // Check that backup was created
+        let backup_files: Vec<_> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains("backup"))
+            .collect();
+
+        assert!(!backup_files.is_empty(), "Backup file should be created");
+
+        // Check new content
+        let content = fs::read_to_string(&dest_path).unwrap();
+        assert_eq!(content, "new content");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("source.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        // Create source file with specific permissions
+        fs::write(&source_path, "test").unwrap();
+        let mut perms = fs::metadata(&source_path).unwrap().permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&source_path, perms).unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+
+        // Check permissions are preserved
+        let dest_perms = fs::metadata(&dest_path).unwrap().permissions();
+        assert_eq!(dest_perms.mode() & 0o777, 0o644);
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_large_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("large.bin");
+        let dest_path = temp_dir.path().join("large_dest.bin");
+
+        // Create a 10MB file
+        let data = vec![0u8; 10 * 1024 * 1024];
+        fs::write(&source_path, &data).unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+        assert!(!source_path.exists());
+        assert!(dest_path.exists());
+
+        // Verify size
+        let dest_size = fs::metadata(&dest_path).unwrap().len();
+        assert_eq!(dest_size, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_cleans_up_empty_directories() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create nested directory structure
+        let source_dir = temp_dir.path().join("shows/Stranger.Things/Season.03");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_path = source_dir.join("episode.mkv");
+        let dest_path = temp_dir.path().join("storage/episode.mkv");
+
+        // Create source file
+        fs::write(&source_path, "test content").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source file should be removed");
+
+        // Check that empty directories were cleaned up
+        assert!(
+            !source_dir.exists(),
+            "Season.03 directory should be removed (empty)"
+        );
+        assert!(
+            !temp_dir.path().join("shows/Stranger.Things").exists(),
+            "Stranger.Things directory should be removed (empty)"
+        );
+        assert!(
+            !temp_dir.path().join("shows").exists(),
+            "shows directory should be removed (empty)"
+        );
+
+        // Destination should exist
+        assert!(dest_path.exists(), "Destination file should exist");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_keeps_non_empty_directories() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create nested directory structure with multiple files
+        let source_dir = temp_dir.path().join("shows/Stranger.Things/Season.03");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_path = source_dir.join("episode1.mkv");
+        let other_file = source_dir.join("episode2.mkv");
+        let dest_path = temp_dir.path().join("storage/episode1.mkv");
+
+        // Create source files
+        fs::write(&source_path, "episode 1").unwrap();
+        fs::write(&other_file, "episode 2").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source file should be removed");
+
+        // Check that non-empty directory was kept
+        assert!(
+            source_dir.exists(),
+            "Season.03 directory should exist (contains episode2.mkv)"
+        );
+        assert!(other_file.exists(), "Other file should still exist");
+
+        // Destination should exist
+        assert!(dest_path.exists(), "Destination file should exist");
     }
 }
