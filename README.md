@@ -116,8 +116,9 @@ Define your disks with priorities:
 tiers:
   - name: ssd
     path: /mnt/ssd
-    priority: 1              # lower number = faster tier
-    max_usage_percent: 90    # don't fill above 90%
+    priority: 1                # lower number = faster tier
+    max_usage_percent: 90      # don't fill above 90%
+    min_usage_percent: 30      # don't demote files until 30% full
 ```
 
 ### Strategies (rules)

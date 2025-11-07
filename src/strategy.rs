@@ -74,7 +74,7 @@ mod tests {
     fn create_test_tier(name: &str) -> Tier {
         let temp_dir = std::env::temp_dir().join(format!("tier_test_{name}"));
         fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, 1, None).unwrap()
+        Tier::new(name.to_string(), temp_dir, 1, None, None).unwrap()
     }
 
     #[test]

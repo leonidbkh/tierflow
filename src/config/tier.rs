@@ -11,11 +11,20 @@ pub struct TierConfig {
     /// Maximum tier usage percent (0-100). If not specified, tier can fill to 100%
     #[serde(default)]
     pub max_usage_percent: Option<u64>,
+    /// Minimum tier usage percent (0-100). Won't demote files until this threshold is reached
+    #[serde(default)]
+    pub min_usage_percent: Option<u64>,
 }
 
 impl TierConfig {
     pub fn into_tier(self) -> io::Result<Tier> {
-        Tier::new(self.name, self.path, self.priority, self.max_usage_percent)
+        Tier::new(
+            self.name,
+            self.path,
+            self.priority,
+            self.max_usage_percent,
+            self.min_usage_percent,
+        )
     }
 }
 
@@ -60,6 +69,7 @@ priority: 1
             path: temp_dir.clone(),
             priority: 1,
             max_usage_percent: None,
+            min_usage_percent: None,
         };
 
         let tier = config.into_tier().unwrap();
@@ -75,6 +85,7 @@ priority: 1
             path: PathBuf::from("/nonexistent/path"),
             priority: 1,
             max_usage_percent: None,
+            min_usage_percent: None,
         };
 
         let result = config.into_tier();
@@ -88,6 +99,7 @@ priority: 1
             path: PathBuf::from("/mnt/cache"),
             priority: 1,
             max_usage_percent: Some(85),
+            min_usage_percent: Some(30),
         };
 
         let cloned = config.clone();

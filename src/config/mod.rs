@@ -261,6 +261,7 @@ strategies:
                 path: "/tmp".into(),
                 priority: 1,
                 max_usage_percent: None,
+                min_usage_percent: None,
             }],
             strategies: vec![],
             mover: MoverConfig::default(),
@@ -281,12 +282,14 @@ strategies:
                     path: "/tmp".into(),
                     priority: 1,
                     max_usage_percent: None,
+                    min_usage_percent: None,
                 },
                 TierConfig {
                     name: "cache".to_string(),
                     path: "/tmp2".into(),
                     priority: 2,
                     max_usage_percent: None,
+                    min_usage_percent: None,
                 },
             ],
             strategies: vec![PlacementStrategyConfig {
@@ -316,6 +319,7 @@ strategies:
                 path: "/tmp".into(),
                 priority: 1,
                 max_usage_percent: None,
+                min_usage_percent: None,
             }],
             strategies: vec![
                 PlacementStrategyConfig {
@@ -353,6 +357,7 @@ strategies:
                 path: "/tmp".into(),
                 priority: 1,
                 max_usage_percent: None,
+                min_usage_percent: None,
             }],
             strategies: vec![PlacementStrategyConfig {
                 name: "test".to_string(),
@@ -385,12 +390,14 @@ strategies:
                     path: "/tmp".into(),
                     priority: 1,
                     max_usage_percent: None,
+                    min_usage_percent: None,
                 },
                 TierConfig {
                     name: "storage".to_string(),
                     path: "/tmp2".into(),
                     priority: 10,
                     max_usage_percent: None,
+                    min_usage_percent: None,
                 },
             ],
             strategies: vec![
