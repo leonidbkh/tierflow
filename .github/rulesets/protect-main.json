@@ -30,13 +30,13 @@
       "parameters": {
         "required_status_checks": [
           {
-            "context": "CI / Test"
+            "context": "Test"
           },
           {
-            "context": "CI / Clippy"
+            "context": "Clippy"
           },
           {
-            "context": "CI / Format"
+            "context": "Format"
           }
         ],
         "strict_required_status_checks_policy": true
