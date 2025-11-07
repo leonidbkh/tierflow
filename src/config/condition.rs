@@ -54,7 +54,7 @@ impl From<ContainsModeConfig> for ContainsMode {
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConditionConfig {
     MaxAge {
         max_age_hours: u64,

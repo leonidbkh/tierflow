@@ -24,6 +24,7 @@ pub enum MoverType {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MoverConfig {
     #[serde(rename = "type")]
     pub mover_type: MoverType,
@@ -41,6 +42,7 @@ impl Default for MoverConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct BalancingConfig {
     pub tiers: Vec<TierConfig>,
     pub strategies: Vec<PlacementStrategyConfig>,
@@ -429,5 +431,93 @@ strategies:
 
         let result = config.validate();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_fields_in_tier() {
+        let yaml = r"
+tiers:
+  - name: cache
+    path: /tmp
+    priority: 1
+    unknown_field: value
+
+strategies:
+  - name: test
+    priority: 1
+    preferred_tiers:
+      - cache
+";
+        let result: std::result::Result<BalancingConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("unknown field"));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_fields_in_strategy() {
+        let yaml = r"
+tiers:
+  - name: cache
+    path: /tmp
+    priority: 1
+
+strategies:
+  - name: test
+    priority: 1
+    preferred_tiers:
+      - cache
+    unknown_field: value
+";
+        let result: std::result::Result<BalancingConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("unknown field"));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_fields_in_config() {
+        let yaml = r"
+tiers:
+  - name: cache
+    path: /tmp
+    priority: 1
+
+strategies:
+  - name: test
+    priority: 1
+    preferred_tiers:
+      - cache
+
+unknown_top_level: value
+";
+        let result: std::result::Result<BalancingConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("unknown field"));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_fields_in_condition() {
+        let yaml = r"
+tiers:
+  - name: cache
+    path: /tmp
+    priority: 1
+
+strategies:
+  - name: test
+    priority: 1
+    conditions:
+      - type: max_age
+        max_age_hours: 24
+        unknown_field: value
+    preferred_tiers:
+      - cache
+";
+        let result: std::result::Result<BalancingConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("unknown field"));
     }
 }

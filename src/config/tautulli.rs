@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 /// Tautulli configuration for tracking Plex viewing progress
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TautulliConfig {
     /// Base URL of Tautulli instance (e.g., "<http://localhost:8181>")
     pub url: String,

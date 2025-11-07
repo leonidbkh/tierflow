@@ -4,6 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct TierConfig {
     pub name: String,
     pub path: PathBuf,
