@@ -260,19 +260,23 @@ impl Mover for RsyncMover {
         }
 
         // Step 5: Verify source file hasn't been modified during copy
-        // (Protection against concurrent modifications)
+        // (Protection against concurrent modifications - check both size and mtime)
         let source_metadata_after = fs::metadata(source)?;
 
-        if source_metadata_after.len() != source_metadata.len() {
+        if source_metadata_after.len() != source_metadata.len()
+            || source_metadata_after.modified()? != source_metadata.modified()?
+        {
             log::warn!(
-                "Source file size changed during copy! Before: {} bytes, After: {} bytes. Cleaning up stale copy.",
+                "Source file changed during copy! Before: {} bytes @ {:?}, After: {} bytes @ {:?}. Cleaning up stale copy.",
                 source_metadata.len(),
-                source_metadata_after.len()
+                source_metadata.modified().ok(),
+                source_metadata_after.len(),
+                source_metadata_after.modified().ok()
             );
             // Clean up the stale copy since source was modified
             let _ = fs::remove_file(destination);
             return Err(io::Error::other(format!(
-                "Source file was modified during copy (size changed). Stale copy removed: {}",
+                "Source file was modified during copy. Stale copy removed: {}",
                 destination.display()
             )));
         }
@@ -289,8 +293,38 @@ impl Mover for RsyncMover {
             )));
         }
 
-        // Step 6: Only now, after all verification, remove the source
+        // Step 6: Double-check destination integrity right before deletion
+        // (Protection against bit rot or corruption that happened after initial verification)
+        log::debug!("Performing final destination integrity check before deletion");
+        let dest_checksum_final = Self::calculate_checksum(destination)?;
+
+        if dest_checksum_final != source_checksum {
+            log::error!(
+                "Destination checksum changed after initial verification! Initial: {}, Final: {}",
+                dest_checksum,
+                dest_checksum_final
+            );
+            return Err(io::Error::other(format!(
+                "Destination file corrupted after verification. Not deleting source for safety: {}",
+                source.display()
+            )));
+        }
+
+        // Step 7: Only now, after all verification, remove the source
         fs::remove_file(source)?;
+
+        // Step 8: Verify destination still exists after source deletion
+        // (Protection against race condition where something deleted destination)
+        if !destination.exists() {
+            log::error!(
+                "Destination file disappeared after source deletion: {}",
+                destination.display()
+            );
+            return Err(io::Error::other(format!(
+                "Destination file was deleted by another process after source removal: {}. DATA LOSS OCCURRED!",
+                destination.display()
+            )));
+        }
 
         log::info!(
             "Successfully moved: {} -> {} (checksum: {})",
