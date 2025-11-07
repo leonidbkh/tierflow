@@ -177,7 +177,16 @@ impl Mover for RsyncMover {
             fs::create_dir_all(parent)?;
         }
 
-        // Step 1: Copy file with rsync (without removing source)
+        // Step 1: Copy file to temporary name (atomic rename pattern)
+        // This prevents other processes (Tdarr, Plex, etc.) from accessing incomplete files
+        let temp_destination = destination.with_extension(format!(
+            "{}.partial",
+            destination
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ));
+
         let mut cmd = Command::new("rsync");
 
         // Base arguments for file copy (no --remove-source-files!)
@@ -199,8 +208,9 @@ impl Mover for RsyncMover {
             cmd.arg(arg);
         }
 
-        // Add source and destination
-        cmd.arg(source.as_os_str()).arg(destination.as_os_str());
+        // Copy to temporary destination first
+        cmd.arg(source.as_os_str())
+            .arg(temp_destination.as_os_str());
 
         log::info!(
             "Copying file: {} -> {}",
@@ -230,21 +240,21 @@ impl Mover for RsyncMover {
             )));
         }
 
-        // Step 2: Verify the file was copied correctly
-        if !destination.exists() {
+        // Step 2: Verify the temporary file was copied correctly
+        if !temp_destination.exists() {
             return Err(io::Error::other(format!(
-                "Destination file was not created: {}",
-                destination.display()
+                "Temporary destination file was not created: {}",
+                temp_destination.display()
             )));
         }
 
         // Step 3: Verify file sizes match
         let source_metadata = fs::metadata(source)?;
-        let dest_metadata = fs::metadata(destination)?;
+        let dest_metadata = fs::metadata(&temp_destination)?;
 
         if source_metadata.len() != dest_metadata.len() {
             // Try to clean up the incomplete copy
-            let _ = fs::remove_file(destination);
+            let _ = fs::remove_file(&temp_destination);
             return Err(io::Error::other(format!(
                 "File size mismatch after copy: source={} bytes, dest={} bytes",
                 source_metadata.len(),
@@ -254,11 +264,11 @@ impl Mover for RsyncMover {
 
         // Step 4: Calculate checksums for both files
         let source_checksum = Self::calculate_checksum(source)?;
-        let dest_checksum = Self::calculate_checksum(destination)?;
+        let dest_checksum = Self::calculate_checksum(&temp_destination)?;
 
         if source_checksum != dest_checksum {
             // Try to clean up the corrupted copy
-            let _ = fs::remove_file(destination);
+            let _ = fs::remove_file(&temp_destination);
             return Err(io::Error::other(format!(
                 "Checksum mismatch after copy: source={source_checksum}, dest={dest_checksum}"
             )));
@@ -278,11 +288,11 @@ impl Mover for RsyncMover {
                 source_metadata_after.len(),
                 source_metadata_after.modified().ok()
             );
-            // Clean up the stale copy since source was modified
-            let _ = fs::remove_file(destination);
+            // Clean up the stale temporary copy since source was modified
+            let _ = fs::remove_file(&temp_destination);
             return Err(io::Error::other(format!(
                 "Source file was modified during copy. Stale copy removed: {}",
-                destination.display()
+                temp_destination.display()
             )));
         }
 
@@ -292,16 +302,18 @@ impl Mover for RsyncMover {
                 "Source file is now in use by another process. Not deleting: {}",
                 source.display()
             );
+            // Clean up temporary file
+            let _ = fs::remove_file(&temp_destination);
             return Err(io::Error::other(format!(
                 "Source file became in use during copy. Not deleting for safety: {}",
                 source.display()
             )));
         }
 
-        // Step 6: Double-check destination integrity right before deletion
+        // Step 6: Double-check temporary destination integrity right before atomic rename
         // (Protection against bit rot or corruption that happened after initial verification)
-        log::debug!("Performing final destination integrity check before deletion");
-        let dest_checksum_final = Self::calculate_checksum(destination)?;
+        log::debug!("Performing final destination integrity check before atomic rename");
+        let dest_checksum_final = Self::calculate_checksum(&temp_destination)?;
 
         if dest_checksum_final != source_checksum {
             log::error!(
@@ -309,16 +321,26 @@ impl Mover for RsyncMover {
                 dest_checksum,
                 dest_checksum_final
             );
+            let _ = fs::remove_file(&temp_destination);
             return Err(io::Error::other(format!(
                 "Destination file corrupted after verification. Not deleting source for safety: {}",
                 source.display()
             )));
         }
 
-        // Step 7: Only now, after all verification, remove the source
+        // Step 7: Atomic rename from .partial to final name
+        // This is atomic - file appears instantly, preventing partial file access
+        log::debug!(
+            "Atomically renaming {} -> {}",
+            temp_destination.display(),
+            destination.display()
+        );
+        fs::rename(&temp_destination, destination)?;
+
+        // Step 8: Only now, after atomic rename, remove the source
         fs::remove_file(source)?;
 
-        // Step 8: Verify destination still exists after source deletion
+        // Step 9: Verify destination still exists after source deletion
         // (Protection against race condition where something deleted destination)
         if !destination.exists() {
             log::error!(
