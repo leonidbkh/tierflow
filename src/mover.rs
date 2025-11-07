@@ -261,13 +261,15 @@ impl Mover for RsyncMover {
 
         if source_metadata_after.len() != source_metadata.len() {
             log::warn!(
-                "Source file size changed during copy! Before: {} bytes, After: {} bytes. Aborting delete.",
+                "Source file size changed during copy! Before: {} bytes, After: {} bytes. Cleaning up stale copy.",
                 source_metadata.len(),
                 source_metadata_after.len()
             );
+            // Clean up the stale copy since source was modified
+            let _ = fs::remove_file(destination);
             return Err(io::Error::other(format!(
-                "Source file was modified during copy (size changed). Not deleting for safety: {}",
-                source.display()
+                "Source file was modified during copy (size changed). Stale copy removed: {}",
+                destination.display()
             )));
         }
 
