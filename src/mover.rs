@@ -340,7 +340,30 @@ impl Mover for RsyncMover {
         // Step 8: Only now, after atomic rename, remove the source
         fs::remove_file(source)?;
 
-        // Step 9: Verify destination still exists after source deletion
+        // Step 9: Clean up empty parent directories
+        // Walk up the directory tree and remove empty directories
+        if let Some(mut parent) = source.parent() {
+            while let Some(parent_path) = parent.parent() {
+                // Try to remove the directory - will only succeed if empty
+                match fs::remove_dir(parent) {
+                    Ok(()) => {
+                        log::debug!("Removed empty directory: {}", parent.display());
+                        parent = parent_path;
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {
+                        // Directory not empty, stop here
+                        break;
+                    }
+                    Err(e) => {
+                        // Other error (permissions, etc.) - log but don't fail the operation
+                        log::debug!("Could not remove directory {}: {}", parent.display(), e);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Step 10: Verify destination still exists after source deletion
         // (Protection against race condition where something deleted destination)
         if !destination.exists() {
             log::error!(
@@ -577,5 +600,78 @@ mod tests {
         // Verify size
         let dest_size = fs::metadata(&dest_path).unwrap().len();
         assert_eq!(dest_size, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_cleans_up_empty_directories() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create nested directory structure
+        let source_dir = temp_dir.path().join("shows/Stranger.Things/Season.03");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_path = source_dir.join("episode.mkv");
+        let dest_path = temp_dir.path().join("storage/episode.mkv");
+
+        // Create source file
+        fs::write(&source_path, "test content").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source file should be removed");
+
+        // Check that empty directories were cleaned up
+        assert!(
+            !source_dir.exists(),
+            "Season.03 directory should be removed (empty)"
+        );
+        assert!(
+            !temp_dir.path().join("shows/Stranger.Things").exists(),
+            "Stranger.Things directory should be removed (empty)"
+        );
+        assert!(
+            !temp_dir.path().join("shows").exists(),
+            "shows directory should be removed (empty)"
+        );
+
+        // Destination should exist
+        assert!(dest_path.exists(), "Destination file should exist");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_keeps_non_empty_directories() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create nested directory structure with multiple files
+        let source_dir = temp_dir.path().join("shows/Stranger.Things/Season.03");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_path = source_dir.join("episode1.mkv");
+        let other_file = source_dir.join("episode2.mkv");
+        let dest_path = temp_dir.path().join("storage/episode1.mkv");
+
+        // Create source files
+        fs::write(&source_path, "episode 1").unwrap();
+        fs::write(&other_file, "episode 2").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source file should be removed");
+
+        // Check that non-empty directory was kept
+        assert!(
+            source_dir.exists(),
+            "Season.03 directory should exist (contains episode2.mkv)"
+        );
+        assert!(other_file.exists(), "Other file should still exist");
+
+        // Destination should exist
+        assert!(dest_path.exists(), "Destination file should exist");
     }
 }
