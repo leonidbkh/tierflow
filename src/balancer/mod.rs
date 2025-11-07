@@ -220,6 +220,15 @@ impl Balancer {
         state: &mut PlanningState,
     ) {
         if let Some(strategy) = self.find_matching_strategy(file, context) {
+            // Check if strategy action is Stay - if so, always keep file in place
+            if strategy.action == crate::StrategyAction::Stay {
+                state.decisions.push(PlacementDecision::Stay {
+                    file: file.clone(),
+                    current_tier: current_tier.name.clone(),
+                });
+                return;
+            }
+
             if let Some(ideal_tier) =
                 self.find_ideal_tier_simulated(strategy, file, &state.tier_free_space)
             {

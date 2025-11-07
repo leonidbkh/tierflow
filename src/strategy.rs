@@ -1,11 +1,14 @@
 use crate::{Condition, Context, FileInfo, Tier};
 
+pub use crate::config::StrategyAction;
+
 pub struct PlacementStrategy {
     pub name: String,
     pub priority: u32,
     conditions: Vec<Box<dyn Condition>>,
     preferred_tiers: Vec<String>,
     pub is_required: bool,
+    pub action: StrategyAction,
 }
 
 impl PlacementStrategy {
@@ -16,6 +19,7 @@ impl PlacementStrategy {
             is_required: false,
             conditions: Vec::new(),
             preferred_tiers: Vec::new(),
+            action: StrategyAction::Evaluate,
         }
     }
     pub fn add_condition(mut self, condition: Box<dyn Condition>) -> Self {

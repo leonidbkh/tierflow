@@ -6,7 +6,7 @@ mod tier;
 
 pub use condition::ConditionConfig;
 pub use error::{ConfigError, Result};
-pub use strategy::PlacementStrategyConfig;
+pub use strategy::{PlacementStrategyConfig, StrategyAction};
 pub use tautulli::TautulliConfig;
 pub use tier::TierConfig;
 
@@ -243,6 +243,7 @@ strategies:
                 conditions: vec![],
                 preferred_tiers: vec!["cache".to_string()],
                 required: false,
+                action: StrategyAction::Evaluate,
             }],
             mover: MoverConfig::default(),
             tautulli: None,
@@ -298,6 +299,7 @@ strategies:
                 conditions: vec![],
                 preferred_tiers: vec!["cache".to_string()],
                 required: false,
+                action: StrategyAction::Evaluate,
             }],
             mover: MoverConfig::default(),
             tautulli: None,
@@ -328,6 +330,7 @@ strategies:
                     conditions: vec![],
                     preferred_tiers: vec!["cache".to_string()],
                     required: false,
+                    action: StrategyAction::Evaluate,
                 },
                 PlacementStrategyConfig {
                     name: "test".to_string(),
@@ -335,6 +338,7 @@ strategies:
                     conditions: vec![],
                     preferred_tiers: vec!["cache".to_string()],
                     required: false,
+                    action: StrategyAction::Evaluate,
                 },
             ],
             mover: MoverConfig::default(),
@@ -365,6 +369,7 @@ strategies:
                 conditions: vec![],
                 preferred_tiers: vec!["nonexistent".to_string()],
                 required: false,
+                action: StrategyAction::Evaluate,
             }],
             mover: MoverConfig::default(),
             tautulli: None,
@@ -407,6 +412,7 @@ strategies:
                     conditions: vec![],
                     preferred_tiers: vec!["storage".to_string()],
                     required: false,
+                    action: StrategyAction::Evaluate,
                 },
                 PlacementStrategyConfig {
                     name: "default".to_string(),
@@ -414,6 +420,7 @@ strategies:
                     conditions: vec![],
                     preferred_tiers: vec!["cache".to_string(), "storage".to_string()],
                     required: false,
+                    action: StrategyAction::Evaluate,
                 },
             ],
             mover: MoverConfig::default(),

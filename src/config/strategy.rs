@@ -3,6 +3,17 @@ use serde::Deserialize;
 
 use super::ConditionConfig;
 
+/// Действие стратегии при совпадении условий
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StrategyAction {
+    /// Обычная обработка: найти ideal tier и переместить файл если нужно
+    #[default]
+    Evaluate,
+    /// Всегда оставлять файл на текущем месте (игнорировать)
+    Stay,
+}
+
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct PlacementStrategyConfig {
     pub name: String,
@@ -12,6 +23,9 @@ pub struct PlacementStrategyConfig {
     pub preferred_tiers: Vec<String>,
     #[serde(default)]
     pub required: bool,
+    /// Действие стратегии: evaluate (обычная обработка) или stay (игнорировать)
+    #[serde(default)]
+    pub action: StrategyAction,
 }
 
 impl PlacementStrategyConfig {
@@ -29,6 +43,8 @@ impl PlacementStrategyConfig {
         if self.required {
             strategy = strategy.required();
         }
+
+        strategy.action = self.action;
 
         strategy
     }
@@ -131,6 +147,7 @@ preferred_tiers:
             conditions: vec![],
             preferred_tiers: vec!["cache".to_string()],
             required: false,
+            action: StrategyAction::Evaluate,
         };
 
         let strategy = config.into_strategy();
@@ -152,6 +169,7 @@ preferred_tiers:
             conditions: vec![ConditionConfig::MaxAge { max_age_hours: 24 }],
             preferred_tiers: vec!["storage".to_string()],
             required: false,
+            action: StrategyAction::Evaluate,
         };
 
         let strategy = config.into_strategy();
@@ -174,6 +192,7 @@ preferred_tiers:
             conditions: vec![],
             preferred_tiers: vec!["cache".to_string()],
             required: true,
+            action: StrategyAction::Evaluate,
         };
 
         let strategy = config.into_strategy();
@@ -191,6 +210,7 @@ preferred_tiers:
             ],
             preferred_tiers: vec!["cache".to_string()],
             required: false,
+            action: StrategyAction::Evaluate,
         };
 
         let strategy = config.into_strategy();
@@ -216,6 +236,7 @@ preferred_tiers:
                 "archive".to_string(),
             ],
             required: false,
+            action: StrategyAction::Evaluate,
         };
 
         let strategy = config.into_strategy();
@@ -232,6 +253,7 @@ preferred_tiers:
             conditions: vec![ConditionConfig::AlwaysTrue],
             preferred_tiers: vec!["cache".to_string()],
             required: false,
+            action: StrategyAction::Evaluate,
         };
 
         let cloned = config.clone();
