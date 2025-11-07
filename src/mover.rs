@@ -86,6 +86,27 @@ impl Default for RsyncMover {
     }
 }
 
+impl RsyncMover {
+    /// Check if file is currently open by any process
+    fn is_file_in_use(path: &Path) -> io::Result<bool> {
+        #[cfg(target_os = "linux")]
+        {
+            // Use fuser to check if any process has the file open
+            let output = Command::new("fuser").arg(path.as_os_str()).output()?;
+
+            // fuser returns exit code 0 if processes found
+            Ok(output.status.success())
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = path; // Silence unused warning
+            // On non-Linux, skip the check (no reliable method)
+            Ok(false)
+        }
+    }
+}
+
 impl Mover for RsyncMover {
     fn move_file(&self, source: &Path, destination: &Path) -> io::Result<()> {
         // Check if source exists
@@ -93,6 +114,14 @@ impl Mover for RsyncMover {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("Source file does not exist: {}", source.display()),
+            ));
+        }
+
+        // Check if source file is currently in use
+        if Self::is_file_in_use(source)? {
+            return Err(io::Error::new(
+                io::ErrorKind::ResourceBusy,
+                format!("Source file is currently in use: {}", source.display()),
             ));
         }
 
@@ -226,7 +255,35 @@ impl Mover for RsyncMover {
             )));
         }
 
-        // Step 5: Only now, after all verification, remove the source
+        // Step 5: Verify source file hasn't been modified during copy
+        // (Protection against concurrent modifications)
+        let source_metadata_after = fs::metadata(source)?;
+
+        if source_metadata_after.len() != source_metadata.len() {
+            log::warn!(
+                "Source file size changed during copy! Before: {} bytes, After: {} bytes. Aborting delete.",
+                source_metadata.len(),
+                source_metadata_after.len()
+            );
+            return Err(io::Error::other(format!(
+                "Source file was modified during copy (size changed). Not deleting for safety: {}",
+                source.display()
+            )));
+        }
+
+        // Check if source file is in use before deleting
+        if Self::is_file_in_use(source)? {
+            log::warn!(
+                "Source file is now in use by another process. Not deleting: {}",
+                source.display()
+            );
+            return Err(io::Error::other(format!(
+                "Source file became in use during copy. Not deleting for safety: {}",
+                source.display()
+            )));
+        }
+
+        // Step 6: Only now, after all verification, remove the source
         fs::remove_file(source)?;
 
         log::info!(
