@@ -23,7 +23,7 @@ pub use conditions::{
 };
 pub use config::{
     BalancingConfig, ConditionConfig, ConfigError, MoverConfig, MoverType, PlacementStrategyConfig,
-    TautulliConfig, TierConfig,
+    StrategyAction, TautulliConfig, TierConfig,
 };
 pub use error::{AppError, Result};
 pub use executor::{ExecutionError, ExecutionResult, Executor};

@@ -42,6 +42,32 @@ tiers:
 # Strategies define file placement rules
 # Higher priority strategy wins when multiple strategies match
 strategies:
+  # CRITICAL PRIORITY: Ignore temporary/working files
+  # These files should never be moved (e.g., Tdarr transcoding, downloads in progress)
+  - name: ignore_temporary_files
+    priority: 999  # Highest priority - always checked first
+    action: stay   # Special action: keep file where it is, don't move
+    conditions:
+      - type: path_prefix
+        prefix: tdarr  # Tdarr working directories
+    preferred_tiers: []  # Not used when action: stay
+    required: false
+  #
+  # You can also use action: stay for other scenarios:
+  # - Incomplete downloads (files with .part, .!qB extensions)
+  # - Files currently being written
+  # - Any files that should never be moved by tierflow
+  #
+  # Example: Ignore incomplete downloads
+  # - name: ignore_incomplete_downloads
+  #   priority: 998
+  #   action: stay
+  #   conditions:
+  #     - type: file_extension
+  #       extensions: ["!qB", "part", "tmp"]
+  #       mode: whitelist
+  #   preferred_tiers: []
+
   # HIGHEST PRIORITY: Keep actively watched TV show episodes on cache
   # Requires Tautulli configuration (see above)
   # Uncomment this strategy when you enable Tautulli
