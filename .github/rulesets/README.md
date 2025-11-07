@@ -83,6 +83,43 @@ For both `main` and `develop` branches:
     - `fmt` (Format check)
   - ✅ Require branches to be up to date before merging
 
+## Restricting PR Sources (Additional Configuration)
+
+**Note**: GitHub Rulesets API doesn't support restricting which branches can create PRs to `main`. 
+
+To enforce "only `release/*` branches can PR to `main`", you have two options:
+
+### Option 1: Manual Process (Recommended)
+- Document the workflow in `CONTRIBUTING.md`
+- Close any PRs to `main` that don't come from `release/*`
+- Use PR templates to remind contributors
+
+### Option 2: GitHub Actions Workflow
+Create `.github/workflows/pr-validation.yml`:
+
+```yaml
+name: Validate PR Source
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if PR is from release branch
+        run: |
+          if [[ ! "${{ github.head_ref }}" =~ ^release/ ]]; then
+            echo "❌ PRs to main must come from release/* branches only"
+            echo "Current branch: ${{ github.head_ref }}"
+            exit 1
+          fi
+          echo "✅ PR from release branch - OK"
+```
+
+Then add `validate` to required status checks in the ruleset.
+
 ## What These Rules Do
 
 ### Protection Rules

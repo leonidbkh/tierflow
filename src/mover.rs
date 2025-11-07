@@ -185,9 +185,14 @@ impl Mover for RsyncMover {
         // Equivalent to -rlptgoD (recursive, links, perms, times, group, owner, devices)
         cmd.arg("-av") // Archive mode with verbose
             .arg("--checksum") // Use checksums for verification
-            .arg("--progress") // Show progress during transfer
-            .arg("--xattrs") // Preserve extended attributes
-            .arg("--acl"); // Preserve ACLs
+            .arg("--progress"); // Show progress during transfer
+
+        // Add Linux-specific options if available
+        #[cfg(target_os = "linux")]
+        {
+            cmd.arg("--xattrs") // Preserve extended attributes
+                .arg("--acl"); // Preserve ACLs
+        }
 
         // Add any extra arguments
         for arg in &self.extra_args {
@@ -420,6 +425,9 @@ mod tests {
         let mover = RsyncMover::new();
         let result = mover.move_file(&source_path, &dest_path);
 
+        if let Err(ref e) = result {
+            eprintln!("Move failed: {}", e);
+        }
         assert!(result.is_ok());
         assert!(!source_path.exists(), "Source file should be removed");
         assert!(dest_path.exists(), "Destination file should exist");
@@ -427,5 +435,125 @@ mod tests {
         // Check content
         let content = fs::read_to_string(&dest_path).unwrap();
         assert_eq!(content, "test content");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_source_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("nonexistent.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_identical_destination_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("source.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        // Create identical files
+        fs::write(&source_path, "identical content").unwrap();
+        fs::write(&dest_path, "identical content").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        // Should succeed and remove source
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source should be removed");
+        assert!(dest_path.exists(), "Destination should still exist");
+
+        let content = fs::read_to_string(&dest_path).unwrap();
+        assert_eq!(content, "identical content");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_different_destination_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("source.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        // Create different files
+        fs::write(&source_path, "new content").unwrap();
+        fs::write(&dest_path, "old content").unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        // Should succeed and create backup
+        assert!(result.is_ok());
+        assert!(!source_path.exists(), "Source should be removed");
+        assert!(dest_path.exists(), "New destination should exist");
+
+        // Check that backup was created
+        let backup_files: Vec<_> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains("backup"))
+            .collect();
+
+        assert!(!backup_files.is_empty(), "Backup file should be created");
+
+        // Check new content
+        let content = fs::read_to_string(&dest_path).unwrap();
+        assert_eq!(content, "new content");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("source.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+
+        // Create source file with specific permissions
+        fs::write(&source_path, "test").unwrap();
+        let mut perms = fs::metadata(&source_path).unwrap().permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&source_path, perms).unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+
+        // Check permissions are preserved
+        let dest_perms = fs::metadata(&dest_path).unwrap().permissions();
+        assert_eq!(dest_perms.mode() & 0o777, 0o644);
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_large_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("large.bin");
+        let dest_path = temp_dir.path().join("large_dest.bin");
+
+        // Create a 10MB file
+        let data = vec![0u8; 10 * 1024 * 1024];
+        fs::write(&source_path, &data).unwrap();
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_ok());
+        assert!(!source_path.exists());
+        assert!(dest_path.exists());
+
+        // Verify size
+        let dest_size = fs::metadata(&dest_path).unwrap().len();
+        assert_eq!(dest_size, 10 * 1024 * 1024);
     }
 }
