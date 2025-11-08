@@ -1,6 +1,6 @@
 [package]
 name = "tierflow"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 rust-version = "1.91"
 description = "Intelligent strategy-based file balancing system for tiered storage with Tautulli (Plex) integration"
