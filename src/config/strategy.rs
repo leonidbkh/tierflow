@@ -15,6 +15,7 @@ pub enum StrategyAction {
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct PlacementStrategyConfig {
     pub name: String,
     pub priority: u32,
