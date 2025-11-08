@@ -89,20 +89,36 @@ impl Default for RsyncMover {
 impl RsyncMover {
     /// Check if file is currently open by any process
     fn is_file_in_use(path: &Path) -> io::Result<bool> {
-        #[cfg(target_os = "linux")]
+        // Use lsof to check if any process has the file open
+        // lsof is available on Linux, macOS, BSD
+        // -t: terse output (PIDs only, faster)
+        // Returns exit code 0 if file is open, 1 if not open
+        match Command::new("lsof")
+            .arg("-t") // Terse mode: only PIDs
+            .arg(path.as_os_str())
+            .output()
         {
-            // Use fuser to check if any process has the file open
-            let output = Command::new("fuser").arg(path.as_os_str()).output()?;
-
-            // fuser returns exit code 0 if processes found
-            Ok(output.status.success())
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = path; // Silence unused warning
-            // On non-Linux, skip the check (no reliable method)
-            Ok(false)
+            Ok(output) => {
+                // lsof returns exit code 0 if file is open by any process
+                Ok(output.status.success())
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                // lsof command not found - skip check with warning
+                log::warn!(
+                    "lsof command not found. Cannot verify if file is in use. \
+                     Consider installing lsof package for safer file operations."
+                );
+                Ok(false)
+            }
+            Err(e) => {
+                // Other error (permission denied, etc.)
+                log::warn!(
+                    "Failed to check if file is in use ({}): {}. Proceeding anyway.",
+                    path.display(),
+                    e
+                );
+                Ok(false)
+            }
         }
     }
 }
@@ -189,26 +205,10 @@ impl Mover for RsyncMover {
 
         let mut cmd = Command::new("rsync");
 
-        // Base arguments for file copy (no --remove-source-files!)
-        // -a = archive mode: preserves permissions, timestamps, symlinks, etc.
-        // Equivalent to -rlptgoD (recursive, links, perms, times, group, owner, devices)
-        cmd.arg("-av") // Archive mode with verbose
-            .arg("--checksum") // Use checksums for verification
-            .arg("--progress"); // Show progress during transfer
-
-        // Add Linux-specific options if available
-        #[cfg(target_os = "linux")]
-        {
-            cmd.arg("--xattrs") // Preserve extended attributes
-                .arg("--acl"); // Preserve ACLs
-        }
-
-        // Add any extra arguments
         for arg in &self.extra_args {
             cmd.arg(arg);
         }
 
-        // Copy to temporary destination first
         cmd.arg(source.as_os_str())
             .arg(temp_destination.as_os_str());
 
