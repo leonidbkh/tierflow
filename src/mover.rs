@@ -205,26 +205,10 @@ impl Mover for RsyncMover {
 
         let mut cmd = Command::new("rsync");
 
-        // Base arguments for file copy (no --remove-source-files!)
-        // -a = archive mode: preserves permissions, timestamps, symlinks, etc.
-        // Equivalent to -rlptgoD (recursive, links, perms, times, group, owner, devices)
-        cmd.arg("-av") // Archive mode with verbose
-            .arg("--checksum") // Use checksums for verification
-            .arg("--progress"); // Show progress during transfer
-
-        // Add Linux-specific options if available
-        #[cfg(target_os = "linux")]
-        {
-            cmd.arg("--xattrs") // Preserve extended attributes
-                .arg("--acl"); // Preserve ACLs
-        }
-
-        // Add any extra arguments
         for arg in &self.extra_args {
             cmd.arg(arg);
         }
 
-        // Copy to temporary destination first
         cmd.arg(source.as_os_str())
             .arg(temp_destination.as_os_str());
 
