@@ -33,7 +33,7 @@ impl Balancer {
         let file_map = self.scan_all_tiers();
 
         // PASS 1: Collect statistics from all files
-        log::info!(
+        tracing::info!(
             "Pass 1: Collecting statistics from {} files...",
             file_map.len()
         );
@@ -41,10 +41,10 @@ impl Balancer {
 
         // Load Tautulli data if configured
         if let Some(tautulli_config) = &self.tautulli_config {
-            log::info!("Loading Tautulli viewing history...");
+            tracing::info!("Loading Tautulli viewing history...");
             match self.load_tautulli_stats(file_map.keys(), tautulli_config) {
                 Ok(tautulli_stats) => {
-                    log::info!(
+                    tracing::info!(
                         "Tautulli loaded: {} active episodes across {} users",
                         tautulli_stats.active_window_episodes.len(),
                         tautulli_stats.user_progress.len()
@@ -52,19 +52,19 @@ impl Balancer {
                     global_stats = global_stats.with_tautulli(tautulli_stats);
                 }
                 Err(e) => {
-                    log::warn!("Failed to load Tautulli data: {e}. Continuing without it.");
+                    tracing::warn!("Failed to load Tautulli data: {e}. Continuing without it.");
                 }
             }
         }
 
         let global_stats = Arc::new(global_stats);
-        log::info!(
+        tracing::info!(
             "Statistics collected: {} directories",
             global_stats.file_stats.directory_files.len()
         );
 
         // PASS 2: Apply strategies with statistics
-        log::info!("Pass 2: Planning file placement...");
+        tracing::info!("Pass 2: Planning file placement...");
         let mut state = PlanningState::new(&self.tiers);
 
         let files: Vec<_> = file_map.into_iter().collect();
@@ -326,11 +326,11 @@ impl Balancer {
 
         // Fetch viewing history
         let history = client.get_history(config.history_length)?;
-        log::debug!("Fetched {} history items from Tautulli", history.len());
+        tracing::debug!("Fetched {} history items from Tautulli", history.len());
 
         // Build user watch progress
         let user_progress = build_progress(&history, config.days_back, config.watched_threshold);
-        log::debug!(
+        tracing::debug!(
             "Tracked {} show progress entries for {} unique users",
             user_progress.len(),
             user_progress

@@ -105,7 +105,7 @@ impl BalancingConfig {
 
                 match result {
                     Ok(output) if output.status.success() => {
-                        log::debug!("Rsync is available");
+                        tracing::debug!("Rsync is available");
                     }
                     _ => {
                         return Err(ConfigError::MoverUnavailable {
@@ -123,7 +123,9 @@ impl BalancingConfig {
         // Validate Tautulli configuration if active_window conditions are used
         if self.has_active_window_conditions() {
             if let Some(tautulli_config) = &self.tautulli {
-                log::info!("Validating Tautulli configuration (active_window conditions detected)");
+                tracing::info!(
+                    "Validating Tautulli configuration (active_window conditions detected)"
+                );
 
                 // Perform health check
                 use crate::TautulliClient;

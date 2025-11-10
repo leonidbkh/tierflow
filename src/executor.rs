@@ -67,7 +67,7 @@ impl Executor {
                         "Demoting"
                     };
 
-                    log::info!(
+                    tracing::info!(
                         "{} file: {} (strategy: {}, {} -> {})",
                         action,
                         file.path.display(),
@@ -84,7 +84,7 @@ impl Executor {
                             result.bytes_moved += file.size;
                         }
                         Err(e) => {
-                            log::error!("Failed to move {}: {}", file.path.display(), e);
+                            tracing::error!("Failed to move {}: {}", file.path.display(), e);
                             result.errors.push(ExecutionError {
                                 file: file.path.clone(),
                                 from_tier: from_tier.clone(),
@@ -97,7 +97,7 @@ impl Executor {
             }
         }
 
-        log::info!(
+        tracing::info!(
             "Execution complete: {} moved, {} stayed, {} errors",
             result.files_moved,
             result.files_stayed,

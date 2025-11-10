@@ -5,20 +5,31 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tierflow::{
     Balancer, BalancingConfig, Cli, Commands, DryRunMover, Executor, Mover, MoverType,
-    PlacementDecision, RsyncMover, TierLockGuard,
+    OutputFormat, PlacementDecision, RsyncMover, TierLockGuard,
 };
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 fn main() {
-    // Initialize logger
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
-    // Parse CLI arguments
+    // Parse CLI arguments first to get logging settings
     let cli = Cli::parse();
 
+    // Setup tracing based on CLI flags
+    match &cli.command {
+        Commands::Rebalance { verbose, quiet, .. } | Commands::Daemon { verbose, quiet, .. } => {
+            setup_tracing(*verbose, *quiet);
+        }
+    }
+
     match cli.command {
-        Commands::Rebalance { config, dry_run } => {
-            if let Err(e) = run_rebalance(&config, dry_run) {
-                log::error!("Error: {e}");
+        Commands::Rebalance {
+            config,
+            dry_run,
+            format,
+            ..
+        } => {
+            if let Err(e) = run_rebalance(&config, dry_run, format) {
+                tracing::error!("Error: {e}");
                 process::exit(1);
             }
         }
@@ -26,20 +37,46 @@ fn main() {
             config,
             dry_run,
             interval,
+            format,
+            ..
         } => {
-            if let Err(e) = run_daemon(&config, dry_run, interval) {
-                log::error!("Error: {e}");
+            if let Err(e) = run_daemon(&config, dry_run, interval, format) {
+                tracing::error!("Error: {e}");
                 process::exit(1);
             }
         }
     }
 }
 
+/// Setup tracing subscriber based on verbosity level
+fn setup_tracing(verbose: u8, quiet: bool) {
+    let filter = if quiet {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("error"))
+    } else {
+        let level = match verbose {
+            0 => "warn",
+            1 => "info",
+            2 => "debug",
+            _ => "trace",
+        };
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(format!("tierflow={level}")))
+    };
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .with_span_events(FmtSpan::NONE)
+        .with_writer(std::io::stderr) // All logs to stderr
+        .init();
+}
+
 fn run_rebalance(
     config_path: &std::path::Path,
     dry_run: bool,
+    format: OutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Loading configuration from: {}", config_path.display());
+    tracing::info!("Loading configuration from: {}", config_path.display());
 
     // Load configuration
     let config = BalancingConfig::from_file(config_path)?;
@@ -61,7 +98,7 @@ fn run_rebalance(
         .map(tierflow::PlacementStrategyConfig::into_strategy)
         .collect();
 
-    log::info!(
+    tracing::info!(
         "Configuration loaded: {} tiers, {} strategies{}",
         tiers.len(),
         strategies.len(),
@@ -75,7 +112,7 @@ fn run_rebalance(
     // Acquire locks on all tiers before proceeding
     let _lock_guard = match TierLockGuard::try_lock_tiers(&tiers) {
         Ok(guard) => {
-            log::info!("Acquired locks on {} tiers", guard.locked_tiers().len());
+            tracing::info!("Acquired locks on {} tiers", guard.locked_tiers().len());
             guard
         }
         Err(tierflow::AppError::TierLocked {
@@ -100,28 +137,30 @@ fn run_rebalance(
     let balancer = Balancer::new(tiers.clone(), strategies, tautulli_config);
 
     // Plan rebalance
-    log::info!("Planning rebalance...");
+    tracing::info!("Planning rebalance...");
     let plan = balancer.plan_rebalance();
 
-    // Output plan
-    print_plan(&plan);
+    // Output plan to stderr (for human consumption)
+    if !matches!(format, OutputFormat::Json | OutputFormat::Yaml) {
+        print_plan(&plan);
+    }
 
     // Execute plan
-    println!("\nExecuting plan...");
+    tracing::info!("Executing plan...");
 
     // Choose mover based on config and dry-run flag
     let mover: Box<dyn Mover> = if dry_run {
-        log::info!("Dry-run mode: using DryRunMover");
+        tracing::info!("Dry-run mode: using DryRunMover");
         Box::new(DryRunMover)
     } else {
         // Use mover from config
         match mover_config.mover_type {
             MoverType::Rsync => {
-                log::info!("Using RsyncMover from config");
+                tracing::info!("Using RsyncMover from config");
                 Box::new(RsyncMover::with_args(mover_config.extra_args))
             }
             MoverType::DryRun => {
-                log::info!("Using DryRunMover from config");
+                tracing::info!("Using DryRunMover from config");
                 Box::new(DryRunMover)
             }
         }
@@ -129,26 +168,61 @@ fn run_rebalance(
 
     let result = Executor::execute_plan(&plan, mover.as_ref(), &tiers);
 
-    if dry_run {
-        println!("\n[DRY-RUN MODE] No files were actually moved");
-    }
+    // Output result to stdout based on format
+    match format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "files_moved": result.files_moved,
+                "files_stayed": result.files_stayed,
+                "bytes_moved": result.bytes_moved,
+                "dry_run": dry_run,
+                "errors": result.errors.iter().map(|e| serde_json::json!({
+                    "file": e.file.display().to_string(),
+                    "from_tier": &e.from_tier,
+                    "to_tier": &e.to_tier,
+                    "error": &e.error,
+                })).collect::<Vec<_>>(),
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Yaml => {
+            let output = serde_json::json!({
+                "files_moved": result.files_moved,
+                "files_stayed": result.files_stayed,
+                "bytes_moved": result.bytes_moved,
+                "dry_run": dry_run,
+                "errors": result.errors.iter().map(|e| serde_json::json!({
+                    "file": e.file.display().to_string(),
+                    "from_tier": &e.from_tier,
+                    "to_tier": &e.to_tier,
+                    "error": &e.error,
+                })).collect::<Vec<_>>(),
+            });
+            println!("{}", serde_yaml::to_string(&output)?);
+        }
+        OutputFormat::Text => {
+            if dry_run {
+                eprintln!("\n[DRY-RUN MODE] No files were actually moved");
+            }
 
-    println!("\nExecution complete:");
-    println!("  Files moved: {}", result.files_moved);
-    println!("  Files stayed: {}", result.files_stayed);
-    println!(
-        "  Bytes moved: {} ({:.2} GB)",
-        result.bytes_moved,
-        result.bytes_moved as f64 / 1_000_000_000.0
-    );
-
-    if !result.errors.is_empty() {
-        println!("\nErrors ({}):", result.errors.len());
-        for error in &result.errors {
-            println!(
-                "  {} -> {}: {}",
-                error.from_tier, error.to_tier, error.error
+            eprintln!("\nExecution complete:");
+            eprintln!("  Files moved: {}", result.files_moved);
+            eprintln!("  Files stayed: {}", result.files_stayed);
+            eprintln!(
+                "  Bytes moved: {} ({:.2} GB)",
+                result.bytes_moved,
+                result.bytes_moved as f64 / 1_000_000_000.0
             );
+
+            if !result.errors.is_empty() {
+                eprintln!("\nErrors ({}):", result.errors.len());
+                for error in &result.errors {
+                    eprintln!(
+                        "  {} -> {}: {}",
+                        error.from_tier, error.to_tier, error.error
+                    );
+                }
+            }
         }
     }
 
@@ -159,8 +233,9 @@ fn run_daemon(
     config_path: &std::path::Path,
     dry_run: bool,
     interval: u64,
+    format: OutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!(
+    tracing::info!(
         "Starting daemon mode (interval: {}s, config: {})",
         interval,
         config_path.display()
@@ -171,23 +246,23 @@ fn run_daemon(
     let r = running.clone();
 
     if let Err(e) = ctrlc::set_handler(move || {
-        log::info!("Received interrupt signal, shutting down gracefully...");
+        tracing::info!("Received interrupt signal, shutting down gracefully...");
         r.store(false, Ordering::SeqCst);
     }) {
-        log::warn!("Failed to set Ctrl-C handler: {}", e);
+        tracing::warn!("Failed to set Ctrl-C handler: {}", e);
     }
 
     let mut run_number = 1;
 
     while running.load(Ordering::SeqCst) {
-        log::info!("===== Daemon run #{run_number} =====");
+        tracing::info!("===== Daemon run #{run_number} =====");
 
-        match run_rebalance(config_path, dry_run) {
+        match run_rebalance(config_path, dry_run, format) {
             Ok(()) => {
-                log::info!("Rebalance completed successfully");
+                tracing::info!("Rebalance completed successfully");
             }
             Err(e) => {
-                log::error!("Rebalance failed: {e}");
+                tracing::error!("Rebalance failed: {e}");
                 // Continue running even after errors
             }
         }
@@ -196,7 +271,7 @@ fn run_daemon(
             break;
         }
 
-        log::info!("Sleeping for {interval} seconds until next run...");
+        tracing::info!("Sleeping for {interval} seconds until next run...");
 
         // Sleep in smaller chunks to allow quick shutdown
         let sleep_chunk = Duration::from_secs(1);
@@ -212,16 +287,16 @@ fn run_daemon(
         run_number += 1;
     }
 
-    log::info!("Daemon stopped gracefully");
+    tracing::info!("Daemon stopped gracefully");
     Ok(())
 }
 
 fn print_plan(plan: &tierflow::BalancingPlan) {
-    println!("\n=== Balancing Plan ===");
+    eprintln!("\n=== Balancing Plan ===");
 
     // Warnings
     if !plan.warnings.is_empty() {
-        println!("\nWarnings ({}):", plan.warnings.len());
+        eprintln!("\nWarnings ({}):", plan.warnings.len());
         for warning in &plan.warnings {
             match warning {
                 tierflow::PlanWarning::InsufficientSpace {
@@ -230,34 +305,34 @@ fn print_plan(plan: &tierflow::BalancingPlan) {
                     needed,
                     available,
                 } => {
-                    println!("  [INSUFFICIENT SPACE] {}", file.display());
-                    println!("    Strategy: {strategy}");
-                    println!("    Needed: {needed} bytes, Available: {available} bytes");
+                    eprintln!("  [INSUFFICIENT SPACE] {}", file.display());
+                    eprintln!("    Strategy: {strategy}");
+                    eprintln!("    Needed: {needed} bytes, Available: {available} bytes");
                 }
                 tierflow::PlanWarning::RequiredStrategyFailed {
                     strategy,
                     file,
                     reason,
                 } => {
-                    println!("  [REQUIRED STRATEGY FAILED] {}", file.display());
-                    println!("    Strategy: {strategy}");
-                    println!("    Reason: {reason}");
+                    eprintln!("  [REQUIRED STRATEGY FAILED] {}", file.display());
+                    eprintln!("    Strategy: {strategy}");
+                    eprintln!("    Reason: {reason}");
                 }
             }
         }
     }
 
     // Tier projections
-    println!("\nTier Usage Projections:");
+    eprintln!("\nTier Usage Projections:");
     for (tier_name, projection) in &plan.projected_tier_usage {
-        println!("  {tier_name}:");
-        println!(
+        eprintln!("  {tier_name}:");
+        eprintln!(
             "    Current:   {}% ({:.2} GB used, {:.2} GB free)",
             projection.current_percent,
             projection.current_used as f64 / 1_000_000_000.0,
             projection.current_free as f64 / 1_000_000_000.0
         );
-        println!(
+        eprintln!(
             "    Projected: {}% ({:.2} GB used, {:.2} GB free)",
             projection.projected_percent,
             projection.projected_used as f64 / 1_000_000_000.0,
@@ -267,7 +342,7 @@ fn print_plan(plan: &tierflow::BalancingPlan) {
         let change = projection.projected_percent as i64 - projection.current_percent as i64;
         if change != 0 {
             let arrow = if change > 0 { "↑" } else { "↓" };
-            println!("    Change: {} {}%", arrow, change.abs());
+            eprintln!("    Change: {} {}%", arrow, change.abs());
         }
     }
 
@@ -284,11 +359,11 @@ fn print_plan(plan: &tierflow::BalancingPlan) {
         .count();
     let stay_count = plan.stay_count();
 
-    println!("\nDecisions Summary:");
-    println!("  Total files: {}", plan.total_files());
-    println!("  Promote: {promote_count}");
-    println!("  Demote: {demote_count}");
-    println!("  Stay: {stay_count}");
+    eprintln!("\nDecisions Summary:");
+    eprintln!("  Total files: {}", plan.total_files());
+    eprintln!("  Promote: {promote_count}");
+    eprintln!("  Demote: {demote_count}");
+    eprintln!("  Stay: {stay_count}");
 
     // Show first 10 moves
     let moves: Vec<_> = plan
@@ -299,7 +374,7 @@ fn print_plan(plan: &tierflow::BalancingPlan) {
         .collect();
 
     if !moves.is_empty() {
-        println!(
+        eprintln!(
             "\nPlanned Moves (showing first 10 of {}):",
             plan.move_count()
         );
@@ -312,9 +387,9 @@ fn print_plan(plan: &tierflow::BalancingPlan) {
                     strategy,
                     priority,
                 } => {
-                    println!("  ↑ PROMOTE [priority={priority}]");
-                    println!("    File: {}", file.path.display());
-                    println!("    {from_tier} -> {to_tier} (strategy: {strategy})");
+                    eprintln!("  ↑ PROMOTE [priority={priority}]");
+                    eprintln!("    File: {}", file.path.display());
+                    eprintln!("    {from_tier} -> {to_tier} (strategy: {strategy})");
                 }
                 PlacementDecision::Demote {
                     file,
@@ -323,20 +398,20 @@ fn print_plan(plan: &tierflow::BalancingPlan) {
                     strategy,
                     priority,
                 } => {
-                    println!("  ↓ DEMOTE [priority={priority}]");
-                    println!("    File: {}", file.path.display());
-                    println!("    {from_tier} -> {to_tier} (strategy: {strategy})");
+                    eprintln!("  ↓ DEMOTE [priority={priority}]");
+                    eprintln!("    File: {}", file.path.display());
+                    eprintln!("    {from_tier} -> {to_tier} (strategy: {strategy})");
                 }
                 PlacementDecision::Stay { .. } => {}
             }
         }
 
         if plan.move_count() > 10 {
-            println!("  ... and {} more", plan.move_count() - 10);
+            eprintln!("  ... and {} more", plan.move_count() - 10);
         }
     }
 
     if plan.is_empty() {
-        println!("\n✓ System is balanced, no moves needed");
+        eprintln!("\n✓ System is balanced, no moves needed");
     }
 }

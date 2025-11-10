@@ -15,10 +15,8 @@ authors = ["Leonid Bakhmetev <leonidbkh@pm.me>"]
 clap = { version = "4.5.51", features = ["derive"] }
 ctrlc = "3.4"
 dirs = "5.0"
-env_logger = "0.11.8"
 fs2 = "0.4.3"
 hostname = "0.4"
-log = "0.4.28"
 regex = "1.11"
 lazy-regex = "3.3"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
@@ -29,6 +27,8 @@ thiserror = "2.0.17"
 anyhow = "1.0.100"
 tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros", "time"] }
 walkdir = "2.5.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json", "fmt"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }

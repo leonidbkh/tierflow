@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 /// Find default config path with priority:
@@ -25,6 +25,17 @@ pub fn default_config_path() -> PathBuf {
     etc_path
 }
 
+/// Output format for command results
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text output
+    Text,
+    /// JSON output for machine parsing
+    Json,
+    /// YAML output for machine parsing
+    Yaml,
+}
+
 #[derive(Parser)]
 #[command(name = "tierflow")]
 #[command(version)]
@@ -45,6 +56,18 @@ pub enum Commands {
         /// Dry-run mode: show plan without executing moves
         #[arg(short = 'n', long)]
         dry_run: bool,
+
+        /// Increase logging verbosity (-v, -vv, -vvv for info, debug, trace)
+        #[arg(short, long, action = clap::ArgAction::Count)]
+        verbose: u8,
+
+        /// Suppress all non-error output to stderr
+        #[arg(short, long)]
+        quiet: bool,
+
+        /// Output format for results
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
     },
 
     /// Run in daemon mode with periodic rebalancing
@@ -60,6 +83,18 @@ pub enum Commands {
         /// Interval between rebalance runs (in seconds)
         #[arg(short, long, value_name = "SECONDS", default_value = "3600")]
         interval: u64,
+
+        /// Increase logging verbosity (-v, -vv, -vvv for info, debug, trace)
+        #[arg(short, long, action = clap::ArgAction::Count)]
+        verbose: u8,
+
+        /// Suppress all non-error output to stderr
+        #[arg(short, long)]
+        quiet: bool,
+
+        /// Output format for results
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
     },
 }
 
@@ -85,7 +120,9 @@ mod tests {
     fn test_rebalance_with_config() {
         let cli = Cli::parse_from(vec!["tierflow", "rebalance", "-c", "test.yaml"]);
         match cli.command {
-            Commands::Rebalance { config, dry_run } => {
+            Commands::Rebalance {
+                config, dry_run, ..
+            } => {
                 assert_eq!(config, PathBuf::from("test.yaml"));
                 assert!(!dry_run);
             }
@@ -97,7 +134,9 @@ mod tests {
     fn test_rebalance_default_config() {
         let cli = Cli::parse_from(vec!["tierflow", "rebalance"]);
         match cli.command {
-            Commands::Rebalance { config, dry_run } => {
+            Commands::Rebalance {
+                config, dry_run, ..
+            } => {
                 // Should use default_config_path() which prefers /etc
                 assert!(config.to_string_lossy().contains("tierflow"));
                 assert!(!dry_run);
@@ -110,7 +149,9 @@ mod tests {
     fn test_rebalance_dry_run() {
         let cli = Cli::parse_from(vec!["tierflow", "rebalance", "--dry-run"]);
         match cli.command {
-            Commands::Rebalance { config, dry_run } => {
+            Commands::Rebalance {
+                config, dry_run, ..
+            } => {
                 assert!(config.to_string_lossy().contains("tierflow"));
                 assert!(dry_run);
             }
@@ -122,7 +163,9 @@ mod tests {
     fn test_rebalance_short_flags() {
         let cli = Cli::parse_from(vec!["tierflow", "rebalance", "-c", "custom.yaml", "-n"]);
         match cli.command {
-            Commands::Rebalance { config, dry_run } => {
+            Commands::Rebalance {
+                config, dry_run, ..
+            } => {
                 assert_eq!(config, PathBuf::from("custom.yaml"));
                 assert!(dry_run);
             }
@@ -138,6 +181,7 @@ mod tests {
                 config,
                 dry_run,
                 interval,
+                ..
             } => {
                 assert!(config.to_string_lossy().contains("tierflow"));
                 assert!(!dry_run);
@@ -155,6 +199,7 @@ mod tests {
                 config,
                 dry_run,
                 interval,
+                ..
             } => {
                 assert!(config.to_string_lossy().contains("tierflow"));
                 assert!(!dry_run);
@@ -180,6 +225,7 @@ mod tests {
                 config,
                 dry_run,
                 interval,
+                ..
             } => {
                 assert_eq!(config, PathBuf::from("custom.yaml"));
                 assert!(dry_run);

@@ -135,7 +135,7 @@ impl Tier {
                 Ok(entry) => Some(entry),
                 Err(err) => {
                     // Log the error but continue processing other files
-                    log::warn!(
+                    tracing::warn!(
                         "Failed to read directory entry in tier '{}': {}",
                         self.name,
                         err
@@ -157,7 +157,7 @@ impl Tier {
                 match FileInfo::from_path(path.clone()) {
                     Ok(info) => Some(info),
                     Err(err) => {
-                        log::warn!(
+                        tracing::warn!(
                             "Failed to get file info for '{}' in tier '{}': {}",
                             path.display(),
                             self.name,

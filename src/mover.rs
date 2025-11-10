@@ -104,7 +104,7 @@ impl RsyncMover {
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 // lsof command not found - skip check with warning
-                log::warn!(
+                tracing::warn!(
                     "lsof command not found. Cannot verify if file is in use. \
                      Consider installing lsof package for safer file operations."
                 );
@@ -112,7 +112,7 @@ impl RsyncMover {
             }
             Err(e) => {
                 // Other error (permission denied, etc.)
-                log::warn!(
+                tracing::warn!(
                     "Failed to check if file is in use ({}): {}. Proceeding anyway.",
                     path.display(),
                     e
@@ -154,7 +154,7 @@ impl Mover for RsyncMover {
 
                 if source_checksum == dest_checksum {
                     // Files are identical, just remove source
-                    log::info!(
+                    tracing::info!(
                         "Destination already exists and is identical: {} (checksum: {})",
                         destination.display(),
                         source_checksum
@@ -179,7 +179,7 @@ impl Mover for RsyncMover {
                 timestamp
             ));
 
-            log::warn!(
+            tracing::warn!(
                 "Destination already exists but differs: {} -> Backing up to: {}",
                 destination.display(),
                 backup_path.display()
@@ -212,7 +212,7 @@ impl Mover for RsyncMover {
         cmd.arg(source.as_os_str())
             .arg(temp_destination.as_os_str());
 
-        log::info!(
+        tracing::info!(
             "Copying file: {} -> {}",
             source.display(),
             destination.display()
@@ -225,7 +225,7 @@ impl Mover for RsyncMover {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
 
-            log::error!(
+            tracing::error!(
                 "Rsync failed for {} -> {}\nstdout: {}\nstderr: {}",
                 source.display(),
                 destination.display(),
@@ -281,7 +281,7 @@ impl Mover for RsyncMover {
         if source_metadata_after.len() != source_metadata.len()
             || source_metadata_after.modified()? != source_metadata.modified()?
         {
-            log::warn!(
+            tracing::warn!(
                 "Source file changed during copy! Before: {} bytes @ {:?}, After: {} bytes @ {:?}. Cleaning up stale copy.",
                 source_metadata.len(),
                 source_metadata.modified().ok(),
@@ -298,7 +298,7 @@ impl Mover for RsyncMover {
 
         // Check if source file is in use before deleting
         if Self::is_file_in_use(source)? {
-            log::warn!(
+            tracing::warn!(
                 "Source file is now in use by another process. Not deleting: {}",
                 source.display()
             );
@@ -312,11 +312,11 @@ impl Mover for RsyncMover {
 
         // Step 6: Double-check temporary destination integrity right before atomic rename
         // (Protection against bit rot or corruption that happened after initial verification)
-        log::debug!("Performing final destination integrity check before atomic rename");
+        tracing::debug!("Performing final destination integrity check before atomic rename");
         let dest_checksum_final = Self::calculate_checksum(&temp_destination)?;
 
         if dest_checksum_final != source_checksum {
-            log::error!(
+            tracing::error!(
                 "Destination checksum changed after initial verification! Initial: {}, Final: {}",
                 dest_checksum,
                 dest_checksum_final
@@ -330,7 +330,7 @@ impl Mover for RsyncMover {
 
         // Step 7: Atomic rename from .partial to final name
         // This is atomic - file appears instantly, preventing partial file access
-        log::debug!(
+        tracing::debug!(
             "Atomically renaming {} -> {}",
             temp_destination.display(),
             destination.display()
@@ -347,7 +347,7 @@ impl Mover for RsyncMover {
                 // Try to remove the directory - will only succeed if empty
                 match fs::remove_dir(parent) {
                     Ok(()) => {
-                        log::debug!("Removed empty directory: {}", parent.display());
+                        tracing::debug!("Removed empty directory: {}", parent.display());
                         parent = parent_path;
                     }
                     Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {
@@ -356,7 +356,7 @@ impl Mover for RsyncMover {
                     }
                     Err(e) => {
                         // Other error (permissions, etc.) - log but don't fail the operation
-                        log::debug!("Could not remove directory {}: {}", parent.display(), e);
+                        tracing::debug!("Could not remove directory {}: {}", parent.display(), e);
                         break;
                     }
                 }
@@ -366,7 +366,7 @@ impl Mover for RsyncMover {
         // Step 10: Verify destination still exists after source deletion
         // (Protection against race condition where something deleted destination)
         if !destination.exists() {
-            log::error!(
+            tracing::error!(
                 "Destination file disappeared after source deletion: {}",
                 destination.display()
             );
@@ -376,7 +376,7 @@ impl Mover for RsyncMover {
             )));
         }
 
-        log::info!(
+        tracing::info!(
             "Successfully moved: {} -> {} (checksum: {})",
             source.display(),
             destination.display(),
@@ -389,7 +389,7 @@ impl Mover for RsyncMover {
 
 impl Mover for DryRunMover {
     fn move_file(&self, source: &Path, destination: &Path) -> io::Result<()> {
-        log::info!(
+        tracing::info!(
             "[DRY-RUN] Would move: {} -> {}",
             source.display(),
             destination.display()
