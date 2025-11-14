@@ -95,7 +95,7 @@ fn run_rebalance(
     let strategies: Vec<_> = config
         .strategies
         .into_iter()
-        .map(tierflow::PlacementStrategyConfig::into_strategy)
+        .map(tierflow::factory::build_strategy)
         .collect();
 
     tracing::info!(

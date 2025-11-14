@@ -6,6 +6,7 @@ pub mod conditions;
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod factory;
 pub mod file;
 pub mod lock;
 pub mod mover;

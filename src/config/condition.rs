@@ -1,8 +1,4 @@
-use crate::{
-    ActiveWindowCondition, AlwaysTrueCondition, Condition, ContainsMode, ExtensionMode,
-    FileExtensionCondition, FileSizeCondition, FilenameContainsCondition, MaxAgeCondition,
-    PathPrefixCondition, PrefixMode,
-};
+use crate::{ContainsMode, ExtensionMode, PrefixMode};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -89,47 +85,10 @@ const fn default_true() -> bool {
     true
 }
 
-impl ConditionConfig {
-    pub fn into_condition(self) -> Box<dyn Condition> {
-        match self {
-            Self::MaxAge { max_age_hours } => Box::new(MaxAgeCondition::new(max_age_hours)),
-            Self::AlwaysTrue => Box::new(AlwaysTrueCondition),
-            Self::FileExtension { extensions, mode } => Box::new(
-                FileExtensionCondition::new_with_mode(extensions, mode.into()),
-            ),
-            Self::PathPrefix { prefix, mode } => {
-                Box::new(PathPrefixCondition::new_with_mode(prefix, mode.into()))
-            }
-            Self::FileSize {
-                min_size_mb,
-                max_size_mb,
-            } => Box::new(FileSizeCondition::new(min_size_mb, max_size_mb)),
-            Self::FilenameContains {
-                patterns,
-                mode,
-                case_sensitive,
-            } => {
-                if case_sensitive {
-                    Box::new(FilenameContainsCondition::new_with_mode(
-                        patterns,
-                        mode.into(),
-                    ))
-                } else {
-                    Box::new(FilenameContainsCondition::new_case_insensitive(
-                        patterns,
-                        mode.into(),
-                    ))
-                }
-            }
-            Self::ActiveWindow { name } => Box::new(ActiveWindowCondition::new(name)),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Context;
+    use crate::{Condition, Context, factory};
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
 
@@ -190,7 +149,7 @@ type: unknown_condition
     #[test]
     fn test_into_condition_max_age() {
         let config = ConditionConfig::MaxAge { max_age_hours: 24 };
-        let condition = config.into_condition();
+        let condition = factory::build_condition(config);
         let context = Context::new();
 
         // Старый файл должен матчиться
@@ -205,7 +164,7 @@ type: unknown_condition
     #[test]
     fn test_into_condition_always_true() {
         let config = ConditionConfig::AlwaysTrue;
-        let condition = config.into_condition();
+        let condition = factory::build_condition(config);
         let context = Context::new();
 
         let file = create_test_file(0);
@@ -233,10 +192,8 @@ type: unknown_condition
             ConditionConfig::AlwaysTrue,
         ];
 
-        let conditions: Vec<Box<dyn Condition>> = configs
-            .into_iter()
-            .map(super::ConditionConfig::into_condition)
-            .collect();
+        let conditions: Vec<Box<dyn Condition>> =
+            configs.into_iter().map(factory::build_condition).collect();
 
         assert_eq!(conditions.len(), 2);
 
@@ -288,7 +245,7 @@ mode: whitelist
             extensions: vec!["mkv".to_string(), "!qB".to_string()],
             mode: ExtensionModeConfig::Whitelist,
         };
-        let condition = config.into_condition();
+        let condition = factory::build_condition(config);
         let context = Context::new();
 
         // MKV файл должен матчиться
@@ -369,7 +326,7 @@ mode: whitelist
             extensions: vec!["!qB".to_string(), "part".to_string()],
             mode: ExtensionModeConfig::Blacklist,
         };
-        let condition = config.into_condition();
+        let condition = factory::build_condition(config);
         let context = Context::new();
 
         // MKV файл НЕ в blacklist → должен матчиться
@@ -431,7 +388,7 @@ mode: whitelist
             prefix: "downloads".to_string(),
             mode: PrefixModeConfig::Whitelist,
         };
-        let condition = config.into_condition();
+        let condition = factory::build_condition(config);
         let context = Context::new().with_tier_path(PathBuf::from("/mnt/cache"));
 
         // Файл в downloads должен матчиться
@@ -503,7 +460,7 @@ mode: whitelist
             prefix: "downloads".to_string(),
             mode: PrefixModeConfig::Blacklist,
         };
-        let condition = config.into_condition();
+        let condition = factory::build_condition(config);
         let context = Context::new().with_tier_path(PathBuf::from("/mnt/cache"));
 
         // Файл НЕ в downloads → должен матчиться
