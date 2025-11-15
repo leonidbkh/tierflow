@@ -78,6 +78,7 @@ strategies:
   #       name: "viewing-window"
   #   preferred_tiers:
   #     - cache
+  #     - storage  # Fallback if cache is full
   #   required: false
   #
   # How it works:
@@ -86,6 +87,12 @@ strategies:
   # - Keeps those episodes on fast cache for quick access
   # - Automatically handles multi-user scenarios (windows merge)
   # - Supports cross-season windows (e.g., S01E99 -> S02E01)
+  #
+  # AUTOMATIC EVICTION:
+  # When cache is full, tierflow automatically evicts files with LOWER priority
+  # to make space for files with HIGHER priority. In this example:
+  # - active_episodes (priority 90) will evict default_keep_cache (priority 1)
+  # - Evicted files are moved to the next available tier (storage)
 
   # Keep large files (>5GB) on storage tier
   - name: large_files_to_storage

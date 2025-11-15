@@ -1,13 +1,22 @@
 use super::{PlacementDecision, PlanWarning};
-use crate::Tier;
+use crate::{FileInfo, Tier};
 use std::collections::HashMap;
+use std::sync::Arc;
 
-/// Internal planning state with free space simulation
+#[derive(Debug, Clone)]
+pub(super) struct BlockedPlacement {
+    pub file: Arc<FileInfo>,
+    pub current_tier: String,
+    pub desired_tier: String,
+    pub strategy_name: String,
+    pub strategy_priority: u32,
+}
+
 pub(super) struct PlanningState {
-    /// Simulated free space after all planned operations
     pub tier_free_space: HashMap<String, u64>,
     pub decisions: Vec<PlacementDecision>,
     pub warnings: Vec<PlanWarning>,
+    pub blocked_placements: Vec<BlockedPlacement>,
 }
 
 impl PlanningState {
@@ -19,6 +28,7 @@ impl PlanningState {
                 .collect(),
             decisions: Vec::new(),
             warnings: Vec::new(),
+            blocked_placements: Vec::new(),
         }
     }
 
@@ -44,6 +54,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     fn create_test_tier(name: &str, _size: u64) -> Tier {
         let temp_dir = std::env::temp_dir().join(format!("tier_state_test_{name}"));
@@ -173,13 +184,15 @@ mod tests {
         let mut state = PlanningState::new(&tiers);
 
         state.decisions.push(PlacementDecision::Stay {
-            file: crate::FileInfo {
+            file: Arc::new(crate::FileInfo {
                 path: PathBuf::from("/test/file.mkv"),
                 size: 1000,
                 modified: std::time::SystemTime::now(),
                 accessed: std::time::SystemTime::now(),
-            },
+            }),
             current_tier: "cache".to_string(),
+            strategy: "test".to_string(),
+            priority: 10,
         });
 
         state.warnings.push(PlanWarning::InsufficientSpace {

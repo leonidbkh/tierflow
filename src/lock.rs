@@ -114,7 +114,7 @@ impl TierLockGuard {
                 if let Some(info) = Self::read_lock_info(lock_path) {
                     // Check if process is still alive
                     if !Self::is_process_alive(info.pid) {
-                        log::warn!(
+                        tracing::warn!(
                             "Removing stale lock from dead process {} ({}) at {}",
                             info.pid,
                             info.hostname,
@@ -187,7 +187,7 @@ impl Drop for TierLockGuard {
             let _ = lock.unlock();
             // Remove lock file on clean exit
             if let Err(e) = fs::remove_file(path) {
-                log::warn!("Failed to remove lock file {}: {}", path.display(), e);
+                tracing::warn!("Failed to remove lock file {}: {}", path.display(), e);
             }
         }
     }

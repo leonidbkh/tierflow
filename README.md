@@ -69,16 +69,73 @@ Then test it:
 
 ```bash
 # Test with dry-run (shows what would happen)
-tierflow rebalance --config /etc/tierflow/config.yaml --dry-run
+tierflow rebalance --dry-run -v
 
 # If everything looks good, run for real
-tierflow rebalance --config /etc/tierflow/config.yaml
+tierflow rebalance -v
+
+# Get JSON output for scripting
+tierflow rebalance --format json --quiet
 
 # Or enable automatic daemon mode
 sudo systemctl enable --now tierflow
 ```
 
-## Viewing Logs
+## Output and Logging
+
+### Verbosity Levels
+
+Control logging output with `-v` flags:
+
+```bash
+# Default: only warnings and errors
+tierflow rebalance
+
+# Info level (-v): show progress
+tierflow rebalance -v
+
+# Debug level (-vv): detailed execution info
+tierflow rebalance -vv
+
+# Trace level (-vvv): everything including library calls
+tierflow rebalance -vvv
+
+# Quiet mode: only errors
+tierflow rebalance --quiet
+```
+
+### Output Formats
+
+Choose output format for machine parsing:
+
+```bash
+# Human-readable (default)
+tierflow rebalance --format text
+
+# JSON for scripts and monitoring
+tierflow rebalance --format json
+
+# YAML for configuration management
+tierflow rebalance --format yaml
+```
+
+**Important**: Logs go to **stderr**, results go to **stdout**. This allows clean separation:
+
+```bash
+# Save results to file, logs to terminal
+tierflow rebalance --format json > results.json
+
+# Save logs to file, results to terminal
+tierflow rebalance -v 2> debug.log
+
+# Save both separately
+tierflow rebalance -v --format json > results.json 2> logs.txt
+
+# Silent mode - only results
+tierflow rebalance --format json --quiet | jq '.files_moved'
+```
+
+### Daemon Logs
 
 **Check daemon logs:**
 ```bash
@@ -95,15 +152,16 @@ sudo journalctl -u tierflow --since "1 hour ago"
 sudo journalctl -u tierflow -n 100
 ```
 
-**Run with debug logging:**
-```bash
-# For manual runs
-RUST_LOG=debug tierflow rebalance --config /etc/tierflow/config.yaml --dry-run
+### Environment Variable (Advanced)
 
-# For systemd service (edit /etc/systemd/system/tierflow.service)
-# Add under [Service]:
-# Environment="RUST_LOG=debug"
-# Then: sudo systemctl daemon-reload && sudo systemctl restart tierflow
+You can still use `RUST_LOG` environment variable for fine-grained control:
+
+```bash
+# Override with environment variable
+RUST_LOG=tierflow=debug tierflow rebalance
+
+# Module-specific logging
+RUST_LOG=tierflow::balancer=trace,tierflow::executor=debug tierflow rebalance
 ```
 
 ## How It Works
@@ -289,6 +347,88 @@ tierflow daemon --config /etc/tierflow/config.yaml --interval 3600
 # Or use systemd (already installed if you chose 'y' during installation)
 sudo systemctl enable --now tierflow
 sudo systemctl status tierflow
+```
+
+## Integration and Automation
+
+### Shell Scripts
+
+```bash
+#!/bin/bash
+# Monitor file movements and send alerts
+
+RESULT=$(tierflow rebalance --format json --quiet)
+FILES_MOVED=$(echo "$RESULT" | jq -r '.files_moved')
+ERRORS=$(echo "$RESULT" | jq -r '.errors | length')
+
+if [ "$FILES_MOVED" -gt 100 ]; then
+    echo "Warning: $FILES_MOVED files moved!" | mail -s "Tierflow Alert" admin@example.com
+fi
+
+if [ "$ERRORS" -gt 0 ]; then
+    echo "Errors occurred during rebalancing" | mail -s "Tierflow Error" admin@example.com
+fi
+```
+
+### Python Integration
+
+```python
+import subprocess
+import json
+
+# Run tierflow and get results
+result = subprocess.run(
+    ['tierflow', 'rebalance', '--format', 'json', '--quiet'],
+    capture_output=True,
+    text=True
+)
+
+data = json.loads(result.stdout)
+
+print(f"Files moved: {data['files_moved']}")
+print(f"Bytes moved: {data['bytes_moved']}")
+
+# Send to monitoring system
+if data['files_moved'] > 0:
+    send_to_prometheus(data)
+```
+
+### Cron Jobs
+
+```bash
+# Run hourly with minimal output (cron emails only on errors)
+0 * * * * /usr/local/bin/tierflow rebalance --quiet 2>&1 | grep -i error
+
+# Run daily with full logging
+0 2 * * * /usr/local/bin/tierflow rebalance -v >> /var/log/tierflow-cron.log 2>&1
+
+# Run with JSON output for processing
+0 * * * * /usr/local/bin/tierflow rebalance --format json --quiet >> /var/log/tierflow-results.jsonl
+```
+
+### Prometheus Monitoring
+
+```bash
+# Export metrics in JSON format
+tierflow rebalance --format json --quiet | \
+  jq '{
+    files_moved: .files_moved,
+    bytes_moved: .bytes_moved,
+    errors: (.errors | length)
+  }' | \
+  curl -X POST -H "Content-Type: application/json" \
+    -d @- http://prometheus-pushgateway:9091/metrics/job/tierflow
+```
+
+### CI/CD Pipelines
+
+```yaml
+# GitHub Actions / GitLab CI example
+- name: Balance storage tiers
+  run: |
+    tierflow rebalance --format json --quiet > results.json
+    FILES_MOVED=$(jq -r '.files_moved' results.json)
+    echo "files_moved=$FILES_MOVED" >> $GITHUB_OUTPUT
 ```
 
 ## How File Movement Works

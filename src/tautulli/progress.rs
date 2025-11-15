@@ -109,7 +109,7 @@ fn calculate_cutoff_time(days_back: u32) -> u64 {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| {
-            log::warn!("System time is before Unix epoch, using 0");
+            tracing::warn!("System time is before Unix epoch, using 0");
             Duration::from_secs(0)
         })
         .as_secs();

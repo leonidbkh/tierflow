@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CLI verbosity flags**: `-v`, `-vv`, `-vvv` for info/debug/trace levels
+- **Output format options**: `--format json|yaml|text` for machine-readable output
+- **Quiet mode**: `--quiet` flag to suppress non-error output
+- Multiple output format support for automation and monitoring
+- JSON/YAML structured output for integration with scripts and tools
+- Proper stdout/stderr separation (logs to stderr, results to stdout)
+
+### Changed
+- **BREAKING**: Migrated from `log`/`env_logger` to `tracing`/`tracing-subscriber`
+- **BREAKING**: Logging now controlled via CLI flags instead of only `RUST_LOG`
+- Improved logging ergonomics for CLI applications
+- Better integration with shell scripts, monitoring tools, and automation
+
+### Migration Guide
+- Old: `RUST_LOG=debug tierflow rebalance`
+- New: `tierflow rebalance -vv` (or still use `RUST_LOG` if preferred)
+- For scripts: Use `--format json --quiet` for clean machine-readable output
+- Logs now go to stderr by default, allowing `tierflow rebalance > results.json`
+
+## [0.1.5] - Previous Release
+
+### Added
 - Initial release of Tierflow (formerly mergerfs-balancer)
 - Strategy-based file placement system
 - Two-pass balancing engine with global statistics
@@ -24,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `path_prefix` - Path-based filtering
   - `filename_contains` - Filename pattern matching
   - `active_window` - Tautulli viewing window integration
-- Comprehensive test suite (260+ tests)
+- Comprehensive test suite (261 tests)
 - Systemd service file for production deployment
 - Configurable tier capacity limits (`max_usage_percent`)
 - Progress tracking during file movements

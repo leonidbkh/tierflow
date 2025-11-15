@@ -34,7 +34,7 @@ impl TautulliClient {
 
     /// Health check - verify Tautulli is reachable and API key is valid
     pub fn health_check(&self) -> Result<()> {
-        log::info!("Performing Tautulli health check: {}", self.base_url);
+        tracing::info!("Performing Tautulli health check: {}", self.base_url);
 
         let url = format!(
             "{}api/v2?apikey={}&cmd=get_server_info",
@@ -61,7 +61,7 @@ impl TautulliClient {
 
         match api_response.response.result {
             ResponseResult::Success => {
-                log::info!(
+                tracing::info!(
                     "Tautulli health check passed: {} (version {})",
                     api_response.response.data.pms_name,
                     api_response.response.data.pms_version
@@ -80,7 +80,7 @@ impl TautulliClient {
 
     /// Get viewing history from Tautulli
     pub fn get_history(&self, length: u32) -> Result<Vec<HistoryItem>> {
-        log::debug!("Fetching Tautulli history (length: {length})");
+        tracing::debug!("Fetching Tautulli history (length: {length})");
 
         let url = format!(
             "{}api/v2?apikey={}&cmd=get_history&length={}",
@@ -104,12 +104,12 @@ impl TautulliClient {
             AppError::External(format!("Failed to read Tautulli response body: {e}"))
         })?;
 
-        log::trace!("Tautulli history response: {response_text}");
+        tracing::trace!("Tautulli history response: {response_text}");
 
         let api_response: TautulliResponse<HistoryResponse> = serde_json::from_str(&response_text)
             .map_err(|e| {
-                log::error!("Failed to parse Tautulli history response. Error: {e}");
-                log::debug!(
+                tracing::error!("Failed to parse Tautulli history response. Error: {e}");
+                tracing::debug!(
                     "Response body (first 1000 chars): {}",
                     &response_text[..response_text.len().min(1000)]
                 );
@@ -118,7 +118,7 @@ impl TautulliClient {
 
         match api_response.response.result {
             ResponseResult::Success => {
-                log::debug!(
+                tracing::debug!(
                     "Fetched {} history items",
                     api_response.response.data.data.len()
                 );

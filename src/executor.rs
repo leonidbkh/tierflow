@@ -67,7 +67,7 @@ impl Executor {
                         "Demoting"
                     };
 
-                    log::info!(
+                    tracing::info!(
                         "{} file: {} (strategy: {}, {} -> {})",
                         action,
                         file.path.display(),
@@ -84,7 +84,7 @@ impl Executor {
                             result.bytes_moved += file.size;
                         }
                         Err(e) => {
-                            log::error!("Failed to move {}: {}", file.path.display(), e);
+                            tracing::error!("Failed to move {}: {}", file.path.display(), e);
                             result.errors.push(ExecutionError {
                                 file: file.path.clone(),
                                 from_tier: from_tier.clone(),
@@ -97,7 +97,7 @@ impl Executor {
             }
         }
 
-        log::info!(
+        tracing::info!(
             "Execution complete: {} moved, {} stayed, {} errors",
             result.files_moved,
             result.files_stayed,
@@ -206,12 +206,16 @@ mod tests {
         let plan = BalancingPlan {
             decisions: vec![
                 PlacementDecision::Stay {
-                    file: file.clone(),
+                    file: std::sync::Arc::new(file.clone()),
                     current_tier: "cache".to_string(),
+                    strategy: "test".to_string(),
+                    priority: 1,
                 },
                 PlacementDecision::Stay {
-                    file,
+                    file: std::sync::Arc::new(file),
                     current_tier: "cache".to_string(),
+                    strategy: "test".to_string(),
+                    priority: 1,
                 },
             ],
             projected_tier_usage: HashMap::new(),
@@ -236,7 +240,7 @@ mod tests {
 
         let plan = BalancingPlan {
             decisions: vec![PlacementDecision::Demote {
-                file: file,
+                file: std::sync::Arc::new(file),
                 from_tier: "cache".to_string(),
                 to_tier: "storage".to_string(),
                 strategy: "old_files".to_string(),
@@ -264,7 +268,7 @@ mod tests {
 
         let plan = BalancingPlan {
             decisions: vec![PlacementDecision::Promote {
-                file: file,
+                file: std::sync::Arc::new(file),
                 from_tier: "storage".to_string(),
                 to_tier: "cache".to_string(),
                 strategy: "hot_files".to_string(),
@@ -295,18 +299,20 @@ mod tests {
         let plan = BalancingPlan {
             decisions: vec![
                 PlacementDecision::Stay {
-                    file: file1,
+                    file: std::sync::Arc::new(file1),
                     current_tier: "cache".to_string(),
+                    strategy: "test".to_string(),
+                    priority: 1,
                 },
                 PlacementDecision::Demote {
-                    file: file2,
+                    file: std::sync::Arc::new(file2),
                     from_tier: "cache".to_string(),
                     to_tier: "storage".to_string(),
                     strategy: "old".to_string(),
                     priority: 10,
                 },
                 PlacementDecision::Promote {
-                    file: file3,
+                    file: std::sync::Arc::new(file3),
                     from_tier: "storage".to_string(),
                     to_tier: "cache".to_string(),
                     strategy: "hot".to_string(),
@@ -347,7 +353,7 @@ mod tests {
 
         let plan = BalancingPlan {
             decisions: vec![PlacementDecision::Demote {
-                file,
+                file: std::sync::Arc::new(file),
                 from_tier: "cache".to_string(),
                 to_tier: "storage".to_string(),
                 strategy: "old".to_string(),

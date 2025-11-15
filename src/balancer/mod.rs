@@ -1,4 +1,5 @@
 mod decision;
+mod eviction;
 mod plan;
 mod state;
 
@@ -6,7 +7,7 @@ pub use decision::PlacementDecision;
 pub use plan::{BalancingPlan, PlanWarning, TierUsageProjection};
 
 use crate::{Context, FileInfo, FileStats, GlobalStats, PlacementStrategy, TautulliConfig, Tier};
-use state::PlanningState;
+use state::{BlockedPlacement, PlanningState};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -33,18 +34,18 @@ impl Balancer {
         let file_map = self.scan_all_tiers();
 
         // PASS 1: Collect statistics from all files
-        log::info!(
+        tracing::info!(
             "Pass 1: Collecting statistics from {} files...",
             file_map.len()
         );
-        let mut global_stats = self.collect_global_stats(file_map.keys());
+        let mut global_stats = self.collect_global_stats(file_map.keys().map(|arc| &**arc));
 
         // Load Tautulli data if configured
         if let Some(tautulli_config) = &self.tautulli_config {
-            log::info!("Loading Tautulli viewing history...");
-            match self.load_tautulli_stats(file_map.keys(), tautulli_config) {
+            tracing::info!("Loading Tautulli viewing history...");
+            match self.load_tautulli_stats(file_map.keys().map(|arc| &**arc), tautulli_config) {
                 Ok(tautulli_stats) => {
-                    log::info!(
+                    tracing::info!(
                         "Tautulli loaded: {} active episodes across {} users",
                         tautulli_stats.active_window_episodes.len(),
                         tautulli_stats.user_progress.len()
@@ -52,19 +53,19 @@ impl Balancer {
                     global_stats = global_stats.with_tautulli(tautulli_stats);
                 }
                 Err(e) => {
-                    log::warn!("Failed to load Tautulli data: {e}. Continuing without it.");
+                    tracing::warn!("Failed to load Tautulli data: {e}. Continuing without it.");
                 }
             }
         }
 
         let global_stats = Arc::new(global_stats);
-        log::info!(
+        tracing::info!(
             "Statistics collected: {} directories",
             global_stats.file_stats.directory_files.len()
         );
 
         // PASS 2: Apply strategies with statistics
-        log::info!("Pass 2: Planning file placement...");
+        tracing::info!("Pass 2: Planning file placement...");
         let mut state = PlanningState::new(&self.tiers);
 
         let files: Vec<_> = file_map.into_iter().collect();
@@ -75,6 +76,21 @@ impl Balancer {
         for (file, current_tier) in files {
             context.current_tier_path = Some(current_tier.path.clone());
             self.plan_file_placement(&file, current_tier, &context, &mut state);
+        }
+
+        let blocked_count = state.blocked_placements.len();
+        if blocked_count > 0 {
+            tracing::info!(
+                "Pass 3: Evicting low-priority files to make space ({} blocked placements)",
+                blocked_count
+            );
+            let eviction_planner = eviction::EvictionPlanner::new(&self.tiers);
+            let blocked = std::mem::take(&mut state.blocked_placements);
+            eviction_planner.evict_to_make_space(
+                &mut state.decisions,
+                blocked,
+                &mut state.tier_free_space,
+            );
         }
 
         state.decisions.sort_by(|d1, d2| {
@@ -92,11 +108,11 @@ impl Balancer {
         }
     }
 
-    fn scan_all_tiers(&self) -> HashMap<FileInfo, &Tier> {
+    fn scan_all_tiers(&self) -> HashMap<Arc<FileInfo>, &Tier> {
         let mut file_map = HashMap::new();
         for tier in &self.tiers {
             for file in tier.get_all_files() {
-                file_map.insert(file, tier);
+                file_map.insert(Arc::new(file), tier);
             }
         }
         file_map
@@ -109,8 +125,8 @@ impl Balancer {
     /// 4. By tier name (for complete stability)
     fn sort_files_deterministically<'a>(
         &self,
-        mut files: Vec<(FileInfo, &'a Tier)>,
-    ) -> Vec<(FileInfo, &'a Tier)> {
+        mut files: Vec<(Arc<FileInfo>, &'a Tier)>,
+    ) -> Vec<(Arc<FileInfo>, &'a Tier)> {
         files.sort_by(|(f1, t1), (f2, t2)| {
             f2.size
                 .cmp(&f1.size)
@@ -177,7 +193,7 @@ impl Balancer {
 
     fn make_decision(
         &self,
-        file: FileInfo,
+        file: Arc<FileInfo>,
         current_tier: &Tier,
         ideal_tier: &Tier,
         strategy: &PlacementStrategy,
@@ -186,6 +202,8 @@ impl Balancer {
             PlacementDecision::Stay {
                 file,
                 current_tier: current_tier.name.clone(),
+                strategy: strategy.name.clone(),
+                priority: strategy.priority,
             }
         } else if ideal_tier.priority < current_tier.priority {
             PlacementDecision::Promote {
@@ -204,27 +222,29 @@ impl Balancer {
                 priority: strategy.priority,
             }
         } else {
-            // Tier usage below min threshold, keep file in place
             PlacementDecision::Stay {
                 file,
                 current_tier: current_tier.name.clone(),
+                strategy: strategy.name.clone(),
+                priority: strategy.priority,
             }
         }
     }
 
     fn plan_file_placement(
         &self,
-        file: &FileInfo,
+        file: &Arc<FileInfo>,
         current_tier: &Tier,
         context: &Context,
         state: &mut PlanningState,
     ) {
         if let Some(strategy) = self.find_matching_strategy(file, context) {
-            // Check if strategy action is Stay - if so, always keep file in place
             if strategy.action == crate::StrategyAction::Stay {
                 state.decisions.push(PlacementDecision::Stay {
-                    file: file.clone(),
+                    file: Arc::clone(file),
                     current_tier: current_tier.name.clone(),
+                    strategy: strategy.name.clone(),
+                    priority: strategy.priority,
                 });
                 return;
             }
@@ -232,7 +252,8 @@ impl Balancer {
             if let Some(ideal_tier) =
                 self.find_ideal_tier_simulated(strategy, file, &state.tier_free_space)
             {
-                let decision = self.make_decision(file.clone(), current_tier, ideal_tier, strategy);
+                let decision =
+                    self.make_decision(Arc::clone(file), current_tier, ideal_tier, strategy);
 
                 if !matches!(decision, PlacementDecision::Stay { .. }) {
                     state.apply_move(file.size, &current_tier.name, &ideal_tier.name);
@@ -240,9 +261,23 @@ impl Balancer {
 
                 state.decisions.push(decision);
             } else {
+                if let Some(first_preferred) = strategy.preferred_tiers().first()
+                    && first_preferred != &current_tier.name
+                {
+                    state.blocked_placements.push(BlockedPlacement {
+                        file: Arc::clone(file),
+                        current_tier: current_tier.name.clone(),
+                        desired_tier: first_preferred.clone(),
+                        strategy_name: strategy.name.clone(),
+                        strategy_priority: strategy.priority,
+                    });
+                }
+
                 state.decisions.push(PlacementDecision::Stay {
-                    file: file.clone(),
+                    file: Arc::clone(file),
                     current_tier: current_tier.name.clone(),
+                    strategy: strategy.name.clone(),
+                    priority: strategy.priority,
                 });
 
                 if strategy.is_required {
@@ -255,8 +290,10 @@ impl Balancer {
             }
         } else {
             state.decisions.push(PlacementDecision::Stay {
-                file: file.clone(),
+                file: Arc::clone(file),
                 current_tier: current_tier.name.clone(),
+                strategy: "no-match".to_string(),
+                priority: 0,
             });
         }
     }
@@ -326,11 +363,11 @@ impl Balancer {
 
         // Fetch viewing history
         let history = client.get_history(config.history_length)?;
-        log::debug!("Fetched {} history items from Tautulli", history.len());
+        tracing::debug!("Fetched {} history items from Tautulli", history.len());
 
         // Build user watch progress
         let user_progress = build_progress(&history, config.days_back, config.watched_threshold);
-        log::debug!(
+        tracing::debug!(
             "Tracked {} show progress entries for {} unique users",
             user_progress.len(),
             user_progress

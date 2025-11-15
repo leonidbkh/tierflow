@@ -45,14 +45,16 @@ impl Condition for PathPrefixCondition {
         let tier_path = if let Some(path) = &context.current_tier_path {
             path
         } else {
-            log::warn!("PathPrefixCondition requires current_tier_path in context, but it's None");
+            tracing::warn!(
+                "PathPrefixCondition requires current_tier_path in context, but it's None"
+            );
             return false;
         };
 
         let relative_path = if let Ok(rel) = file.path.strip_prefix(tier_path) {
             rel
         } else {
-            log::warn!(
+            tracing::warn!(
                 "File {} is not under tier {}",
                 file.path.display(),
                 tier_path.display()

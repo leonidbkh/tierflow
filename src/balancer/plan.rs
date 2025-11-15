@@ -72,6 +72,7 @@ impl BalancingPlan {
 mod tests {
     use super::*;
     use crate::FileInfo;
+    use std::sync::Arc;
     use std::time::SystemTime;
 
     fn create_test_file(name: &str) -> FileInfo {
@@ -88,12 +89,16 @@ mod tests {
         let plan = BalancingPlan {
             decisions: vec![
                 PlacementDecision::Stay {
-                    file: create_test_file("file1.mkv"),
+                    file: Arc::new(create_test_file("file1.mkv")),
                     current_tier: "cache".to_string(),
+                    strategy: "test".to_string(),
+                    priority: 1,
                 },
                 PlacementDecision::Stay {
-                    file: create_test_file("file2.mkv"),
+                    file: Arc::new(create_test_file("file2.mkv")),
                     current_tier: "cache".to_string(),
+                    strategy: "test".to_string(),
+                    priority: 1,
                 },
             ],
             projected_tier_usage: HashMap::new(),
@@ -110,11 +115,13 @@ mod tests {
         let plan = BalancingPlan {
             decisions: vec![
                 PlacementDecision::Stay {
-                    file: create_test_file("file1.mkv"),
+                    file: Arc::new(create_test_file("file1.mkv")),
                     current_tier: "cache".to_string(),
+                    strategy: "test".to_string(),
+                    priority: 1,
                 },
                 PlacementDecision::Demote {
-                    file: create_test_file("file2.mkv"),
+                    file: Arc::new(create_test_file("file2.mkv")),
                     from_tier: "cache".to_string(),
                     to_tier: "storage".to_string(),
                     strategy: "old_files".to_string(),
@@ -135,22 +142,24 @@ mod tests {
         let plan = BalancingPlan {
             decisions: vec![
                 PlacementDecision::Promote {
-                    file: create_test_file("file1.mkv"),
+                    file: Arc::new(create_test_file("file1.mkv")),
                     from_tier: "storage".to_string(),
                     to_tier: "cache".to_string(),
                     strategy: "hot".to_string(),
                     priority: 10,
                 },
                 PlacementDecision::Demote {
-                    file: create_test_file("file2.mkv"),
+                    file: Arc::new(create_test_file("file2.mkv")),
                     from_tier: "cache".to_string(),
                     to_tier: "storage".to_string(),
                     strategy: "cold".to_string(),
                     priority: 5,
                 },
                 PlacementDecision::Stay {
-                    file: create_test_file("file3.mkv"),
+                    file: Arc::new(create_test_file("file3.mkv")),
                     current_tier: "cache".to_string(),
+                    strategy: "test".to_string(),
+                    priority: 1,
                 },
             ],
             projected_tier_usage: HashMap::new(),
@@ -232,8 +241,10 @@ mod tests {
     fn test_plan_with_warnings() {
         let plan = BalancingPlan {
             decisions: vec![PlacementDecision::Stay {
-                file: create_test_file("file1.mkv"),
+                file: Arc::new(create_test_file("file1.mkv")),
                 current_tier: "cache".to_string(),
+                strategy: "test".to_string(),
+                priority: 1,
             }],
             projected_tier_usage: HashMap::new(),
             warnings: vec![

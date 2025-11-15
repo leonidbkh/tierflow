@@ -1,4 +1,3 @@
-use crate::PlacementStrategy;
 use serde::Deserialize;
 
 use super::ConditionConfig;
@@ -29,32 +28,10 @@ pub struct PlacementStrategyConfig {
     pub action: StrategyAction,
 }
 
-impl PlacementStrategyConfig {
-    pub fn into_strategy(self) -> PlacementStrategy {
-        let mut strategy = PlacementStrategy::new(self.name, self.priority);
-
-        for condition_config in self.conditions {
-            strategy = strategy.add_condition(condition_config.into_condition());
-        }
-
-        for tier_name in self.preferred_tiers {
-            strategy = strategy.add_preferred_tier(tier_name);
-        }
-
-        if self.required {
-            strategy = strategy.required();
-        }
-
-        strategy.action = self.action;
-
-        strategy
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Context, FileInfo};
+    use crate::{Context, FileInfo, factory};
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
 
@@ -151,7 +128,7 @@ preferred_tiers:
             action: StrategyAction::Evaluate,
         };
 
-        let strategy = config.into_strategy();
+        let strategy = factory::build_strategy(config);
         assert_eq!(strategy.name, "test");
         assert_eq!(strategy.priority, 1);
         assert!(!strategy.is_required);
@@ -173,7 +150,7 @@ preferred_tiers:
             action: StrategyAction::Evaluate,
         };
 
-        let strategy = config.into_strategy();
+        let strategy = factory::build_strategy(config);
         let context = Context::new();
 
         // Старый файл матчится
@@ -196,7 +173,7 @@ preferred_tiers:
             action: StrategyAction::Evaluate,
         };
 
-        let strategy = config.into_strategy();
+        let strategy = factory::build_strategy(config);
         assert!(strategy.is_required);
     }
 
@@ -214,7 +191,7 @@ preferred_tiers:
             action: StrategyAction::Evaluate,
         };
 
-        let strategy = config.into_strategy();
+        let strategy = factory::build_strategy(config);
         let context = Context::new();
 
         // Оба условия должны выполниться (AND)
@@ -240,7 +217,7 @@ preferred_tiers:
             action: StrategyAction::Evaluate,
         };
 
-        let strategy = config.into_strategy();
+        let strategy = factory::build_strategy(config);
         // Проверяем что все tier'ы добавлены (косвенно через публичные поля нельзя)
         // Но мы знаем что это работает благодаря тестам PlacementStrategy
         assert_eq!(strategy.name, "multi_tier");
