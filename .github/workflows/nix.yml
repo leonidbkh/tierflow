@@ -1,0 +1,55 @@
+name: Nix
+
+on:
+  push:
+    branches: [ main, feature/*, release/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  nix-checks:
+    name: Nix Flake Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v13
+
+      - name: Setup Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v7
+
+      - name: Check flake
+        run: nix flake check --all-systems
+
+      - name: Build package
+        run: nix build --print-build-logs
+
+      - name: Check package metadata
+        run: nix run . -- --version
+
+  nix-build-matrix:
+    name: Build on ${{ matrix.system }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - system: x86_64-linux
+            os: ubuntu-latest
+          - system: aarch64-linux
+            os: ubuntu-latest
+          - system: x86_64-darwin
+            os: macos-13
+          - system: aarch64-darwin
+            os: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v13
+
+      - name: Setup Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v7
+
+      - name: Build for ${{ matrix.system }}
+        run: nix build .#packages.${{ matrix.system }}.default --print-build-logs
