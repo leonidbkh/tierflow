@@ -340,7 +340,9 @@ mod tests {
                 "Should have space for file within limit"
             );
 
-            let large_file = can_add + 1024 * 1024 * 1024;
+            // Large file should exceed max_usage even if there's physical space
+            // Use total size to ensure it definitely exceeds the 50% limit
+            let large_file = (total / 2) + 1024;
             assert!(
                 !tier.has_space_for(large_file),
                 "Should not have space for file exceeding limit"
