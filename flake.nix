@@ -23,11 +23,11 @@
 
           nativeBuildInputs = with pkgs; [
             pkg-config
+            rsync
           ];
 
           buildInputs = with pkgs; [
             openssl
-            rsync
           ];
 
           # Run tests during build
