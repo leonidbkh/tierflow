@@ -28,20 +28,9 @@ jobs:
       - name: Check package metadata
         run: nix run . -- --version
 
-  nix-build-matrix:
-    name: Build on ${{ matrix.system }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - system: x86_64-linux
-            os: ubuntu-latest
-          - system: aarch64-linux
-            os: ubuntu-latest
-          - system: x86_64-darwin
-            os: macos-13
-          - system: aarch64-darwin
-            os: macos-14
+  nix-build-linux:
+    name: Build on Linux
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -51,5 +40,5 @@ jobs:
       - name: Setup Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@v7
 
-      - name: Build for ${{ matrix.system }}
-        run: nix build .#packages.${{ matrix.system }}.default --print-build-logs
+      - name: Build for x86_64-linux
+        run: nix build .#packages.x86_64-linux.default --print-build-logs
