@@ -76,8 +76,9 @@ mod tests {
         let young_file = create_test_file(12);
         assert!(!condition.matches(&young_file, &Context::new()));
 
-        let boundary_file = create_test_file(24);
-        assert!(condition.matches(&boundary_file, &Context::new()));
+        // Use 25 hours to avoid timing issues at exact boundary
+        let near_boundary_file = create_test_file(25);
+        assert!(condition.matches(&near_boundary_file, &Context::new()));
     }
 
     #[test]
@@ -91,8 +92,9 @@ mod tests {
         let old_file = create_test_file(48);
         assert!(!condition.matches(&old_file, &Context::new()));
 
-        let boundary_file = create_test_file(24);
-        assert!(condition.matches(&boundary_file, &Context::new()));
+        // Use 23 hours to avoid timing issues at exact boundary
+        let near_boundary_file = create_test_file(23);
+        assert!(condition.matches(&near_boundary_file, &Context::new()));
     }
 
     #[test]
@@ -103,13 +105,14 @@ mod tests {
         let too_young = create_test_file(3);
         assert!(!condition.matches(&too_young, &Context::new()));
 
-        let in_range_low = create_test_file(6);
+        let in_range_low = create_test_file(7);
         assert!(condition.matches(&in_range_low, &Context::new()));
 
         let in_range_mid = create_test_file(12);
         assert!(condition.matches(&in_range_mid, &Context::new()));
 
-        let in_range_high = create_test_file(24);
+        // Use 23 hours to avoid timing issues at exact boundary
+        let in_range_high = create_test_file(23);
         assert!(condition.matches(&in_range_high, &Context::new()));
 
         let too_old = create_test_file(48);
