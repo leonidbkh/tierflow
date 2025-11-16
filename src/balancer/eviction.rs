@@ -29,6 +29,126 @@ impl<'a> EvictionPlanner<'a> {
         }
     }
 
+    /// Aggressively evict files from tiers exceeding `max_usage_percent`
+    /// This runs even when there are no blocked placements
+    pub fn evict_excess_usage(
+        &self,
+        decisions: &mut [PlacementDecision],
+        tier_free_space: &mut HashMap<String, u64>,
+    ) {
+        for tier in self.tiers {
+            if let Some(max_percent) = tier.max_usage_percent {
+                let total = tier.get_total_space();
+                let simulated_free = tier_free_space.get(&tier.name).copied().unwrap_or(0);
+                let simulated_used = total.saturating_sub(simulated_free);
+                let simulated_percent = if total > 0 {
+                    ((simulated_used as f64 / total as f64) * 100.0) as u64
+                } else {
+                    0
+                };
+
+                if simulated_percent > max_percent {
+                    let overage = simulated_percent - max_percent;
+                    tracing::warn!(
+                        "Tier '{}' exceeds max_usage_percent: {}% > {}% (overage: {}%)",
+                        tier.name,
+                        simulated_percent,
+                        max_percent,
+                        overage
+                    );
+
+                    self.evict_to_target_usage(&tier.name, max_percent, decisions, tier_free_space);
+                }
+            }
+        }
+    }
+
+    /// Evict files from a tier until usage is at or below `target_percent`
+    fn evict_to_target_usage(
+        &self,
+        tier_name: &str,
+        target_percent: u64,
+        decisions: &mut [PlacementDecision],
+        tier_free_space: &mut HashMap<String, u64>,
+    ) {
+        let tier = match self.find_tier(tier_name) {
+            Some(t) => t,
+            None => return,
+        };
+
+        let total = tier.get_total_space();
+        let target_used = (total as f64 * target_percent as f64 / 100.0) as u64;
+
+        let mut candidates = self.find_eviction_candidates(tier_name, decisions);
+
+        // Sort candidates using eviction policy (can be changed later without breaking SRP)
+        self.sort_eviction_candidates(&mut candidates, decisions);
+
+        let simulated_free = tier_free_space.get(tier_name).copied().unwrap_or(0);
+        let mut current_used = total.saturating_sub(simulated_free);
+        let mut evicted_count = 0;
+
+        for (idx, _priority, _file_size) in candidates {
+            if current_used <= target_used {
+                break;
+            }
+
+            if let Some(PlacementDecision::Stay {
+                file,
+                current_tier,
+                strategy,
+                priority,
+            }) = decisions.get(idx).cloned()
+                && let Some(fallback_tier) =
+                    self.find_fallback_tier(&current_tier, tier_free_space, file.size)
+            {
+                tracing::debug!(
+                    "Aggressively evicting {} from {} to {} (reducing usage from {}% to target {}%)",
+                    file.path.display(),
+                    current_tier,
+                    fallback_tier.name,
+                    (current_used as f64 / total as f64 * 100.0) as u64,
+                    target_percent
+                );
+
+                decisions[idx] = PlacementDecision::Demote {
+                    file: Arc::clone(&file),
+                    from_tier: current_tier.clone(),
+                    to_tier: fallback_tier.name.clone(),
+                    strategy,
+                    priority,
+                };
+
+                self.apply_move(
+                    tier_free_space,
+                    file.size,
+                    &current_tier,
+                    &fallback_tier.name,
+                );
+
+                current_used = current_used.saturating_sub(file.size);
+                evicted_count += 1;
+            }
+        }
+
+        if evicted_count > 0 {
+            let final_percent = if total > 0 {
+                (current_used as f64 / total as f64 * 100.0) as u64
+            } else {
+                0
+            };
+            tracing::info!(
+                "Evicted {} files from tier '{}', usage reduced to {}%",
+                evicted_count,
+                tier_name,
+                final_percent
+            );
+            tracing::info!(
+                "Consider tuning strategies to avoid evictions: increase max_usage_percent, add higher-priority strategies, or add more tiers"
+            );
+        }
+    }
+
     fn group_by_tier(
         &self,
         blocked_placements: Vec<BlockedPlacement>,
@@ -65,17 +185,41 @@ impl<'a> EvictionPlanner<'a> {
         tier_name: &str,
         decisions: &[PlacementDecision],
     ) -> Vec<(usize, u32, u64)> {
-        let mut candidates: Vec<(usize, u32, u64)> = decisions
+        decisions
             .iter()
             .enumerate()
             .filter(|(_, d)| {
                 matches!(d, PlacementDecision::Stay { .. }) && d.current_tier() == tier_name
             })
             .map(|(idx, d)| (idx, d.strategy_priority(), d.file_size()))
-            .collect();
+            .collect()
+    }
 
-        candidates.sort_by_key(|(_, priority, size)| (*priority, std::cmp::Reverse(*size)));
-        candidates
+    /// Sort eviction candidates by eviction policy.
+    ///
+    /// Current policy: priority (low first) → age (old first) → size (large first)
+    /// This ensures:
+    /// 1. Low priority strategies are evicted first
+    /// 2. Among same priority, older files are evicted first (LRU-like)
+    /// 3. Among same priority+age, larger files free more space
+    ///
+    /// Extracted as separate method for easy policy changes without breaking SRP.
+    fn sort_eviction_candidates(
+        &self,
+        candidates: &mut [(usize, u32, u64)],
+        decisions: &[PlacementDecision],
+    ) {
+        candidates.sort_by(|(idx1, priority1, size1), (idx2, priority2, size2)| {
+            priority1
+                .cmp(priority2) // Lower priority evicted first
+                .then_with(|| {
+                    // Among same priority: older files evicted first
+                    let file1 = decisions[*idx1].file();
+                    let file2 = decisions[*idx2].file();
+                    file1.modified.cmp(&file2.modified)
+                })
+                .then_with(|| size2.cmp(size1)) // Among same priority+age: larger files first
+        });
     }
 
     fn calculate_needed_space(&self, blocked_list: &[BlockedPlacement]) -> u64 {
@@ -381,6 +525,239 @@ mod tests {
         assert!(
             matches!(high_priority_decision, Some(PlacementDecision::Stay { .. })),
             "High priority file should not be evicted for lower priority file"
+        );
+    }
+
+    #[test]
+    fn test_aggressive_eviction_when_exceeding_max_usage() {
+        let cache = create_test_tier("cache", 1, Some(50));
+        let storage = create_test_tier("storage", 10, None);
+        let tiers = vec![cache.clone(), storage.clone()];
+
+        let eviction_planner = EvictionPlanner::new(&tiers);
+
+        // Create files that will cause cache to exceed 50% usage
+        let total = cache.get_total_space();
+        let file_size = total / 10; // 10% each
+
+        let mut decisions = vec![
+            PlacementDecision::Stay {
+                file: Arc::new(FileInfo {
+                    path: std::path::PathBuf::from("/cache/file1.mkv"),
+                    size: file_size,
+                    modified: std::time::SystemTime::now(),
+                    accessed: std::time::SystemTime::now(),
+                }),
+                current_tier: "cache".to_string(),
+                strategy: "default".to_string(),
+                priority: 10,
+            },
+            PlacementDecision::Stay {
+                file: Arc::new(FileInfo {
+                    path: std::path::PathBuf::from("/cache/file2.mkv"),
+                    size: file_size,
+                    modified: std::time::SystemTime::now(),
+                    accessed: std::time::SystemTime::now(),
+                }),
+                current_tier: "cache".to_string(),
+                strategy: "default".to_string(),
+                priority: 10,
+            },
+            PlacementDecision::Stay {
+                file: Arc::new(FileInfo {
+                    path: std::path::PathBuf::from("/cache/file3.mkv"),
+                    size: file_size,
+                    modified: std::time::SystemTime::now(),
+                    accessed: std::time::SystemTime::now(),
+                }),
+                current_tier: "cache".to_string(),
+                strategy: "default".to_string(),
+                priority: 10,
+            },
+        ];
+
+        // Simulate cache at 30% usage (3 files * 10% each)
+        let simulated_used = file_size * 3;
+        let simulated_free = total.saturating_sub(simulated_used);
+
+        let mut tier_free_space = HashMap::new();
+        tier_free_space.insert("cache".to_string(), simulated_free);
+        tier_free_space.insert("storage".to_string(), storage.get_free_space());
+
+        // Initially no files should be demoted (30% < 50%)
+        let demoted_before = decisions
+            .iter()
+            .filter(|d| matches!(d, PlacementDecision::Demote { .. }))
+            .count();
+        assert_eq!(demoted_before, 0);
+
+        // Now add more files to push usage to 70% (exceeding 50% limit)
+        for i in 4..=7 {
+            decisions.push(PlacementDecision::Stay {
+                file: Arc::new(FileInfo {
+                    path: std::path::PathBuf::from(format!("/cache/file{}.mkv", i)),
+                    size: file_size,
+                    modified: std::time::SystemTime::now(),
+                    accessed: std::time::SystemTime::now(),
+                }),
+                current_tier: "cache".to_string(),
+                strategy: "default".to_string(),
+                priority: 10,
+            });
+        }
+
+        // Update simulated free space to reflect 70% usage
+        let simulated_used = file_size * 7;
+        let simulated_free = total.saturating_sub(simulated_used);
+        tier_free_space.insert("cache".to_string(), simulated_free);
+
+        // Run aggressive eviction
+        eviction_planner.evict_excess_usage(&mut decisions, &mut tier_free_space);
+
+        // Check that some files were demoted
+        let demoted_after = decisions
+            .iter()
+            .filter(|d| matches!(d, PlacementDecision::Demote { .. }))
+            .count();
+        assert!(
+            demoted_after > 0,
+            "Some files should be demoted when cache exceeds max_usage_percent"
+        );
+
+        // Check final usage is at or below 50%
+        let final_free = tier_free_space.get("cache").copied().unwrap_or(0);
+        let final_used = total.saturating_sub(final_free);
+        let final_percent = ((final_used as f64 / total as f64) * 100.0) as u64;
+        assert!(
+            final_percent <= 50,
+            "Cache usage should be reduced to max_usage_percent (50%), got {}%",
+            final_percent
+        );
+    }
+
+    #[test]
+    fn test_aggressive_eviction_no_action_when_under_limit() {
+        let cache = create_test_tier("cache", 1, Some(80));
+        let storage = create_test_tier("storage", 10, None);
+        let tiers = vec![cache.clone(), storage.clone()];
+
+        let eviction_planner = EvictionPlanner::new(&tiers);
+
+        let total = cache.get_total_space();
+        let file_size = total / 10; // 10%
+
+        let mut decisions = vec![PlacementDecision::Stay {
+            file: Arc::new(FileInfo {
+                path: std::path::PathBuf::from("/cache/file1.mkv"),
+                size: file_size,
+                modified: std::time::SystemTime::now(),
+                accessed: std::time::SystemTime::now(),
+            }),
+            current_tier: "cache".to_string(),
+            strategy: "default".to_string(),
+            priority: 10,
+        }];
+
+        // Simulate cache at 10% usage (under 80% limit)
+        let simulated_free = total.saturating_sub(file_size);
+        let mut tier_free_space = HashMap::new();
+        tier_free_space.insert("cache".to_string(), simulated_free);
+        tier_free_space.insert("storage".to_string(), storage.get_free_space());
+
+        eviction_planner.evict_excess_usage(&mut decisions, &mut tier_free_space);
+
+        // No files should be demoted
+        let demoted = decisions
+            .iter()
+            .filter(|d| matches!(d, PlacementDecision::Demote { .. }))
+            .count();
+        assert_eq!(
+            demoted, 0,
+            "No files should be demoted when usage is under limit"
+        );
+    }
+
+    #[test]
+    fn test_aggressive_eviction_evicts_lowest_priority_first() {
+        let cache = create_test_tier("cache", 1, Some(50));
+        let storage = create_test_tier("storage", 10, None);
+        let tiers = vec![cache.clone(), storage.clone()];
+
+        let eviction_planner = EvictionPlanner::new(&tiers);
+
+        let total = cache.get_total_space();
+        let file_size = total / 10; // 10% each
+
+        let low_priority_file = FileInfo {
+            path: std::path::PathBuf::from("/cache/low.mkv"),
+            size: file_size,
+            modified: std::time::SystemTime::now(),
+            accessed: std::time::SystemTime::now(),
+        };
+
+        let high_priority_file = FileInfo {
+            path: std::path::PathBuf::from("/cache/high.mkv"),
+            size: file_size,
+            modified: std::time::SystemTime::now(),
+            accessed: std::time::SystemTime::now(),
+        };
+
+        let mut decisions = vec![
+            PlacementDecision::Stay {
+                file: Arc::new(low_priority_file.clone()),
+                current_tier: "cache".to_string(),
+                strategy: "low".to_string(),
+                priority: 10,
+            },
+            PlacementDecision::Stay {
+                file: Arc::new(high_priority_file.clone()),
+                current_tier: "cache".to_string(),
+                strategy: "high".to_string(),
+                priority: 90,
+            },
+        ];
+
+        // Add more low-priority files to exceed 50%
+        for i in 3..=7 {
+            decisions.push(PlacementDecision::Stay {
+                file: Arc::new(FileInfo {
+                    path: std::path::PathBuf::from(format!("/cache/file{}.mkv", i)),
+                    size: file_size,
+                    modified: std::time::SystemTime::now(),
+                    accessed: std::time::SystemTime::now(),
+                }),
+                current_tier: "cache".to_string(),
+                strategy: "low".to_string(),
+                priority: 10,
+            });
+        }
+
+        // Simulate 70% usage
+        let simulated_used = file_size * 7;
+        let simulated_free = total.saturating_sub(simulated_used);
+        let mut tier_free_space = HashMap::new();
+        tier_free_space.insert("cache".to_string(), simulated_free);
+        tier_free_space.insert("storage".to_string(), storage.get_free_space());
+
+        eviction_planner.evict_excess_usage(&mut decisions, &mut tier_free_space);
+
+        // High priority file should still be on cache
+        let high_priority_decision = decisions
+            .iter()
+            .find(|d| d.file().path == high_priority_file.path);
+        assert!(
+            matches!(high_priority_decision, Some(PlacementDecision::Stay { .. })),
+            "High priority file should not be evicted"
+        );
+
+        // Some low priority files should be demoted
+        let demoted_low_priority = decisions
+            .iter()
+            .filter(|d| matches!(d, PlacementDecision::Demote { priority: 10, .. }))
+            .count();
+        assert!(
+            demoted_low_priority > 0,
+            "Low priority files should be demoted first"
         );
     }
 }

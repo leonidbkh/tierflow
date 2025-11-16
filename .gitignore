@@ -25,3 +25,4 @@ claude.md
 # Config files with secrets
 config.yaml
 *.key
+leo@*
