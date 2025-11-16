@@ -450,7 +450,9 @@ mod tests {
                 "Should accept file within max_usage_percent limit"
             );
 
-            let large_file = can_add + 1024 * 1024 * 1024;
+            // Large file should exceed max_usage even if there's physical space
+            // Use total size to ensure it definitely exceeds the 50% limit
+            let large_file = (total / 2) + 1024;
             assert!(
                 !balancer.can_accept_file(&tier, large_file, current_free),
                 "Should reject file exceeding max_usage_percent limit"
