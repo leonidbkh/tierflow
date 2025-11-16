@@ -329,7 +329,9 @@ mod tests {
         let current_used = total - current_free;
         let max_allowed_used = total / 2;
 
+        // Test behavior based on current disk state
         if current_used < max_allowed_used {
+            // Disk has room - test that we can add within limit but not exceed it
             let can_add = max_allowed_used - current_used;
 
             let small_file = can_add / 2;
@@ -342,6 +344,12 @@ mod tests {
             assert!(
                 !tier.has_space_for(large_file),
                 "Should not have space for file exceeding limit"
+            );
+        } else {
+            // Disk already over limit - should reject any file
+            assert!(
+                !tier.has_space_for(1024),
+                "Should not have space when already over max_usage_percent"
             );
         }
     }
