@@ -439,7 +439,9 @@ mod tests {
         let current_used = total - current_free;
         let max_allowed_used = total / 2;
 
+        // Test behavior based on current disk state
         if current_used < max_allowed_used {
+            // Disk has room - test that we can accept within limit but not exceed it
             let can_add = max_allowed_used - current_used;
 
             let small_file = can_add / 2;
@@ -452,6 +454,12 @@ mod tests {
             assert!(
                 !balancer.can_accept_file(&tier, large_file, current_free),
                 "Should reject file exceeding max_usage_percent limit"
+            );
+        } else {
+            // Disk already over limit - should reject any file
+            assert!(
+                !balancer.can_accept_file(&tier, 1024, current_free),
+                "Should reject file when already over max_usage_percent"
             );
         }
     }
