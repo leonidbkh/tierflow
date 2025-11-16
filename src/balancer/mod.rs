@@ -81,7 +81,7 @@ impl Balancer {
         let blocked_count = state.blocked_placements.len();
         if blocked_count > 0 {
             tracing::info!(
-                "Pass 3: Evicting low-priority files to make space ({} blocked placements)",
+                "Pass 3a: Evicting low-priority files to make space ({} blocked placements)",
                 blocked_count
             );
             let eviction_planner = eviction::EvictionPlanner::new(&self.tiers);
@@ -92,6 +92,11 @@ impl Balancer {
                 &mut state.tier_free_space,
             );
         }
+
+        // PASS 3b: Aggressive eviction for tiers exceeding max_usage_percent
+        tracing::info!("Pass 3b: Checking for tiers exceeding max_usage_percent...");
+        let eviction_planner = eviction::EvictionPlanner::new(&self.tiers);
+        eviction_planner.evict_excess_usage(&mut state.decisions, &mut state.tier_free_space);
 
         state.decisions.sort_by(|d1, d2| {
             d2.sort_priority()
