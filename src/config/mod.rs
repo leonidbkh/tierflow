@@ -182,8 +182,8 @@ strategies:
   - name: old_files
     priority: 10
     conditions:
-      - type: max_age
-        max_age_hours: 168
+      - type: age
+        min_hours: 168
     preferred_tiers:
       - storage
     required: false
@@ -511,8 +511,8 @@ strategies:
   - name: test
     priority: 1
     conditions:
-      - type: max_age
-        max_age_hours: 24
+      - type: age
+        min_hours: 24
         unknown_field: value
     preferred_tiers:
       - cache

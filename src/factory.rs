@@ -1,6 +1,6 @@
 use crate::conditions::{
-    ActiveWindowCondition, AlwaysTrueCondition, FileExtensionCondition, FileSizeCondition,
-    FilenameContainsCondition, MaxAgeCondition, PathPrefixCondition,
+    ActiveWindowCondition, AgeCondition, AlwaysTrueCondition, FileExtensionCondition,
+    FileSizeCondition, FilenameContainsCondition, PathPrefixCondition,
 };
 use crate::config::{ConditionConfig, PlacementStrategyConfig};
 use crate::{Condition, PlacementStrategy};
@@ -28,7 +28,10 @@ pub fn build_strategy(config: PlacementStrategyConfig) -> PlacementStrategy {
 pub fn build_condition(config: ConditionConfig) -> Box<dyn Condition> {
     match config {
         ConditionConfig::AlwaysTrue => Box::new(AlwaysTrueCondition),
-        ConditionConfig::MaxAge { max_age_hours } => Box::new(MaxAgeCondition::new(max_age_hours)),
+        ConditionConfig::Age {
+            min_hours,
+            max_hours,
+        } => Box::new(AgeCondition::new(min_hours, max_hours)),
         ConditionConfig::FileSize {
             min_size_mb,
             max_size_mb,
