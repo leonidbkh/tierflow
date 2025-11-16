@@ -1,0 +1,154 @@
+# Download Automation Configuration
+# This example integrates with Sonarr/Radarr/qBittorrent
+# to manage downloads intelligently
+
+tiers:
+  - name: cache
+    path: /mnt/nvme
+    priority: 1
+    max_usage_percent: 85
+
+  - name: storage
+    path: /mnt/hdds
+    priority: 10
+
+strategies:
+  # EXCLUSIONS - Don't touch active downloads
+
+  # Exclude active torrent downloads
+  - name: ignore_active_torrents
+    priority: 999
+    action: stay
+    conditions:
+      - type: path_prefix
+        prefix: "downloads/incomplete"
+        mode: whitelist
+    preferred_tiers: []
+
+  # Exclude Sonarr/Radarr temporary files
+  - name: ignore_arr_temp
+    priority: 998
+    action: stay
+    conditions:
+      - type: filename_contains
+        patterns: ["_UNPACK_", ".partial~", "_SYNCTHING_"]
+        mode: whitelist
+        case_sensitive: false
+    preferred_tiers: []
+
+  # DOWNLOAD MANAGEMENT
+
+  # Fresh completed downloads stay on cache for seeding
+  - name: completed_downloads_cache
+    priority: 100
+    conditions:
+      - type: path_prefix
+        prefix: "downloads/complete"
+        mode: whitelist
+      - type: age
+        max_hours: 72           # 3 days for seeding
+    preferred_tiers:
+      - cache
+      - storage
+
+  # Older completed downloads can move to storage
+  - name: old_downloads_storage
+    priority: 80
+    conditions:
+      - type: path_prefix
+        prefix: "downloads/complete"
+        mode: whitelist
+      - type: age
+        min_hours: 72           # After 3 days
+    preferred_tiers:
+      - storage
+
+  # MEDIA ORGANIZATION
+
+  # Imported TV shows - recent on cache
+  - name: tv_recent_cache
+    priority: 90
+    conditions:
+      - type: path_prefix
+        prefix: "media/tv"
+        mode: whitelist
+      - type: age
+        max_hours: 336          # 14 days
+    preferred_tiers:
+      - cache
+      - storage
+
+  # Imported movies - recent on cache, then storage
+  - name: movies_recent_cache
+    priority: 85
+    conditions:
+      - type: path_prefix
+        prefix: "media/movies"
+        mode: whitelist
+      - type: age
+        max_hours: 168          # 7 days
+    preferred_tiers:
+      - cache
+      - storage
+
+  # Old TV shows to storage
+  - name: tv_old_storage
+    priority: 60
+    conditions:
+      - type: path_prefix
+        prefix: "media/tv"
+        mode: whitelist
+      - type: age
+        min_hours: 2160         # 90 days
+    preferred_tiers:
+      - storage
+
+  # Old movies to storage
+  - name: movies_old_storage
+    priority: 60
+    conditions:
+      - type: path_prefix
+        prefix: "media/movies"
+        mode: whitelist
+      - type: age
+        min_hours: 720          # 30 days
+    preferred_tiers:
+      - storage
+
+  # 4K content management
+  - name: 4k_content_storage
+    priority: 70
+    conditions:
+      - type: path_prefix
+        prefix: "media/4k"
+        mode: whitelist
+    preferred_tiers:
+      - storage                 # 4K straight to storage due to size
+
+  # Subtitles and metadata always on cache
+  - name: metadata_on_cache
+    priority: 95
+    required: true
+    conditions:
+      - type: file_extension
+        extensions: ["srt", "ass", "sub", "nfo", "jpg", "png"]
+        mode: whitelist
+      - type: file_size
+        max_size_mb: 50         # Metadata files are small
+    preferred_tiers:
+      - cache
+
+  # Default strategy
+  - name: default
+    priority: 10
+    conditions:
+      - type: always_true
+    preferred_tiers:
+      - cache
+      - storage
+
+# Integration notes:
+# - Set Sonarr/Radarr to use /mnt/mergerfs/downloads/complete
+# - Set torrent client incomplete dir to /mnt/nvme/downloads/incomplete
+# - Set torrent client complete dir to /mnt/mergerfs/downloads/complete
+# - Run tierflow after each download completes via script

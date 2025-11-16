@@ -1,0 +1,110 @@
+# Three-Tier Storage Configuration
+# NVMe for hot data, SSD for warm data, HDD for cold data
+# This example demonstrates multi-tier fallback and size-based tiering
+
+tiers:
+  - name: nvme
+    path: /mnt/nvme
+    priority: 1
+    max_usage_percent: 80      # Keep 20% free for performance
+    min_usage_percent: 30      # Don't demote until 30% full
+
+  - name: ssd
+    path: /mnt/ssd
+    priority: 5
+    max_usage_percent: 85
+    min_usage_percent: 40
+
+  - name: hdd
+    path: /mnt/hdds
+    priority: 10
+    max_usage_percent: 95      # HDDs can be filled more
+
+strategies:
+  # Small frequently accessed files on NVMe
+  - name: small_hot_to_nvme
+    priority: 100
+    conditions:
+      - type: file_size
+        max_size_mb: 100        # Less than 100MB
+      - type: age
+        max_hours: 48           # Less than 2 days old
+    preferred_tiers:
+      - nvme
+      - ssd                     # Fallback order
+      - hdd
+
+  # Medium files (100MB-1GB) on SSD
+  - name: medium_to_ssd
+    priority: 90
+    conditions:
+      - type: file_size
+        min_size_mb: 100
+        max_size_mb: 1000
+      - type: age
+        max_hours: 168          # Less than 7 days
+    preferred_tiers:
+      - ssd
+      - nvme                    # Try faster tier if space available
+      - hdd                     # Fallback to slower tier
+
+  # Large recent files can start on SSD
+  - name: large_recent_to_ssd
+    priority: 80
+    conditions:
+      - type: file_size
+        min_size_mb: 1000       # Larger than 1GB
+      - type: age
+        max_hours: 24           # Less than 1 day old
+    preferred_tiers:
+      - ssd
+      - hdd                     # Skip NVMe for large files
+
+  # Old large files to HDD
+  - name: large_old_to_hdd
+    priority: 70
+    conditions:
+      - type: file_size
+        min_size_mb: 1000
+      - type: age
+        min_hours: 168          # Older than 7 days
+    preferred_tiers:
+      - hdd                     # Straight to HDD
+
+  # Downloads start on SSD
+  - name: downloads_to_ssd
+    priority: 60
+    conditions:
+      - type: path_prefix
+        prefix: "downloads"
+        mode: whitelist
+    preferred_tiers:
+      - ssd
+      - hdd
+
+  # Database/config files always on NVMe
+  - name: databases_on_nvme
+    priority: 95
+    required: true              # Warn if can't keep on NVMe
+    conditions:
+      - type: file_extension
+        extensions: ["db", "sqlite", "sqlite3", "json", "xml", "nfo"]
+        mode: whitelist
+    preferred_tiers:
+      - nvme
+      - ssd
+
+  # Default strategy with full fallback chain
+  - name: default
+    priority: 10
+    conditions:
+      - type: always_true
+    preferred_tiers:
+      - nvme                    # Try fastest first
+      - ssd                     # Then SSD
+      - hdd                     # Finally HDD
+
+# When tiers fill up, files are evicted based on:
+# 1. Strategy priority (lower number = evicted first)
+# 2. File age (older = evicted first)
+# 3. File size (larger = evicted first)

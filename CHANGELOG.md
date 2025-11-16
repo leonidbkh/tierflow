@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI verbosity flags**: `-v`, `-vv`, `-vvv` for info/debug/trace levels
 - **Output format options**: `--format json|yaml|text` for machine-readable output
 - **Quiet mode**: `--quiet` flag to suppress non-error output
+- **Aggressive eviction (Pass 3b)**: Automatically evict files when tier exceeds `max_usage_percent`
+- **`action: stay` support**: Strategies can now exclude files from management
+- **`min_usage_percent` for tiers**: Prevent demotion until tier reaches minimum usage threshold
+- **`required` flag for strategies**: Generate warnings when critical strategies can't be satisfied
+- **`age` condition improvements**: Now supports both `min_hours` and `max_hours` for range-based filtering
+- **Examples directory**: Added 5 real-world configuration examples
 - Multiple output format support for automation and monitoring
 - JSON/YAML structured output for integration with scripts and tools
 - Proper stdout/stderr separation (logs to stderr, results to stdout)
@@ -18,14 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **BREAKING**: Migrated from `log`/`env_logger` to `tracing`/`tracing-subscriber`
 - **BREAKING**: Logging now controlled via CLI flags instead of only `RUST_LOG`
-- Improved logging ergonomics for CLI applications
+- **BREAKING**: `max_age` condition renamed to `age` with improved functionality
+- Improved eviction logic with deterministic priority-based selection
+- Enhanced documentation with eviction behavior explanation
 - Better integration with shell scripts, monitoring tools, and automation
+
+### Fixed
+- Fixed stale state bug in aggressive eviction that prevented proper usage reduction
+- Corrected condition type documentation (was `max_age`, now correctly `age`)
 
 ### Migration Guide
 - Old: `RUST_LOG=debug tierflow rebalance`
 - New: `tierflow rebalance -vv` (or still use `RUST_LOG` if preferred)
 - For scripts: Use `--format json --quiet` for clean machine-readable output
 - Logs now go to stderr by default, allowing `tierflow rebalance > results.json`
+- Update configs: `type: max_age` with `max_age_hours` → `type: age` with `max_hours`
 
 ## [0.1.5] - Previous Release
 

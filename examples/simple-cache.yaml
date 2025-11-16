@@ -1,0 +1,45 @@
+# Simple Cache/Archive Configuration
+# This example keeps recent and frequently accessed files on fast storage,
+# while moving old files to slower archive storage.
+
+tiers:
+  - name: cache
+    path: /mnt/nvme
+    priority: 1
+    max_usage_percent: 85  # Start moving files when 85% full
+
+  - name: archive
+    path: /mnt/hdds
+    priority: 10
+    max_usage_percent: 95  # Allow archive to fill up more
+
+strategies:
+  # Keep files less than 30 days old on cache
+  - name: recent_on_cache
+    priority: 100
+    conditions:
+      - type: age
+        max_hours: 720  # 30 days
+    preferred_tiers:
+      - cache
+      - archive  # Fallback if cache is full
+
+  # Large old files go to archive
+  - name: old_large_to_archive
+    priority: 80
+    conditions:
+      - type: age
+        min_hours: 720  # Older than 30 days
+      - type: file_size
+        min_size_mb: 1000  # Larger than 1GB
+    preferred_tiers:
+      - archive
+
+  # Default: keep everything on cache if possible
+  - name: default
+    priority: 10
+    conditions:
+      - type: always_true
+    preferred_tiers:
+      - cache
+      - archive
