@@ -27,6 +27,7 @@
 
           buildInputs = with pkgs; [
             openssl
+            rsync
           ];
 
           # Run tests during build
