@@ -1,17 +1,17 @@
 mod active_window;
+mod age;
 mod always_true;
 mod file_extension;
 mod file_size;
 mod filename_contains;
-mod max_age;
 mod path_prefix;
 
 pub use active_window::ActiveWindowCondition;
+pub use age::AgeCondition;
 pub use always_true::AlwaysTrueCondition;
 pub use file_extension::{ExtensionMode, FileExtensionCondition};
 pub use file_size::FileSizeCondition;
 pub use filename_contains::{ContainsMode, FilenameContainsCondition};
-pub use max_age::MaxAgeCondition;
 pub use path_prefix::{PathPrefixCondition, PrefixMode};
 
 use crate::{FileInfo, GlobalStats};

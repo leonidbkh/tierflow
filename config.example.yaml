@@ -132,8 +132,8 @@ strategies:
     conditions:
       - type: path_prefix
         prefix: "series_lib"  # Only files in series_lib folder
-      - type: max_age
-        max_age_hours: 168  # 7 days
+      - type: age
+        min_hours: 168  # 7 days
       - type: file_extension
         extensions: ["!qB", "part", "tmp"]  # Exclude incomplete files
         mode: blacklist  # Files WITHOUT these extensions
@@ -146,8 +146,8 @@ strategies:
   - name: old_large_files_to_storage
     priority: 10
     conditions:
-      - type: max_age
-        max_age_hours: 168  # 7 days
+      - type: age
+        min_hours: 168  # 7 days
       - type: file_size
         min_size_mb: 100  # Only files larger than 100MB
       - type: file_extension

@@ -51,8 +51,8 @@ mod tests {
 name: old_files
 priority: 10
 conditions:
-  - type: max_age
-    max_age_hours: 168
+  - type: age
+    min_hours: 168
 preferred_tiers:
   - storage
 required: true
@@ -87,8 +87,8 @@ preferred_tiers:
 name: complex
 priority: 5
 conditions:
-  - type: max_age
-    max_age_hours: 24
+  - type: age
+    min_hours: 24
   - type: always_true
 preferred_tiers:
   - cache
@@ -144,7 +144,10 @@ preferred_tiers:
         let config = PlacementStrategyConfig {
             name: "old_files".to_string(),
             priority: 10,
-            conditions: vec![ConditionConfig::MaxAge { max_age_hours: 24 }],
+            conditions: vec![ConditionConfig::Age {
+                min_hours: Some(24),
+                max_hours: None,
+            }],
             preferred_tiers: vec!["storage".to_string()],
             required: false,
             action: StrategyAction::Evaluate,
@@ -184,7 +187,10 @@ preferred_tiers:
             priority: 5,
             conditions: vec![
                 ConditionConfig::AlwaysTrue,
-                ConditionConfig::MaxAge { max_age_hours: 24 },
+                ConditionConfig::Age {
+                    min_hours: Some(24),
+                    max_hours: None,
+                },
             ],
             preferred_tiers: vec!["cache".to_string()],
             required: false,

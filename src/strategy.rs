@@ -60,7 +60,7 @@ impl PlacementStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::conditions::{AlwaysTrueCondition, MaxAgeCondition};
+    use crate::conditions::{AgeCondition, AlwaysTrueCondition};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_builder_pattern() {
-        let condition = MaxAgeCondition::new(10);
+        let condition = AgeCondition::new(Some(10), None);
         let strategy = PlacementStrategy::new("test".to_string(), 1)
             .add_condition(Box::new(condition))
             .add_preferred_tier("tier1".to_string())
@@ -110,7 +110,7 @@ mod tests {
     fn test_builder_multiple_conditions() {
         let strategy = PlacementStrategy::new("multi".to_string(), 5)
             .add_condition(Box::new(AlwaysTrueCondition))
-            .add_condition(Box::new(MaxAgeCondition::new(24)))
+            .add_condition(Box::new(AgeCondition::new(Some(24), None)))
             .add_preferred_tier("cache".to_string())
             .add_preferred_tier("storage".to_string());
 
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn test_matches_with_single_condition_false() {
         let strategy = PlacementStrategy::new("test".to_string(), 1)
-            .add_condition(Box::new(MaxAgeCondition::new(24)));
+            .add_condition(Box::new(AgeCondition::new(Some(24), None)));
 
         let file = create_test_file(12, 1000); // Файл 12 часов назад
         let context = Context::new();
@@ -154,7 +154,7 @@ mod tests {
     fn test_matches_with_multiple_conditions_all_true() {
         let strategy = PlacementStrategy::new("test".to_string(), 1)
             .add_condition(Box::new(AlwaysTrueCondition))
-            .add_condition(Box::new(MaxAgeCondition::new(24)));
+            .add_condition(Box::new(AgeCondition::new(Some(24), None)));
 
         let file = create_test_file(48, 1000); // Файл 48 часов назад
         let context = Context::new();
@@ -167,7 +167,7 @@ mod tests {
     fn test_matches_with_multiple_conditions_one_false() {
         let strategy = PlacementStrategy::new("test".to_string(), 1)
             .add_condition(Box::new(AlwaysTrueCondition))
-            .add_condition(Box::new(MaxAgeCondition::new(24)));
+            .add_condition(Box::new(AgeCondition::new(Some(24), None)));
 
         let file = create_test_file(12, 1000); // Файл 12 часов назад
         let context = Context::new();
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_strategy_with_all_features() {
         let strategy = PlacementStrategy::new("full_test".to_string(), 10)
-            .add_condition(Box::new(MaxAgeCondition::new(24)))
+            .add_condition(Box::new(AgeCondition::new(Some(24), None)))
             .add_condition(Box::new(AlwaysTrueCondition))
             .add_preferred_tier("cache".to_string())
             .add_preferred_tier("storage".to_string())

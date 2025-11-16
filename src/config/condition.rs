@@ -52,8 +52,11 @@ impl From<ContainsModeConfig> for ContainsMode {
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConditionConfig {
-    MaxAge {
-        max_age_hours: u64,
+    Age {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        min_hours: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_hours: Option<u64>,
     },
     AlwaysTrue,
     FileExtension {
@@ -105,11 +108,17 @@ mod tests {
     #[test]
     fn test_deserialize_max_age() {
         let yaml = r"
-type: max_age
-max_age_hours: 168
+type: age
+min_hours: 168
 ";
         let config: ConditionConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config, ConditionConfig::MaxAge { max_age_hours: 168 });
+        assert_eq!(
+            config,
+            ConditionConfig::Age {
+                min_hours: Some(168),
+                max_hours: None
+            }
+        );
     }
 
     #[test]
@@ -124,17 +133,29 @@ type: always_true
     #[test]
     fn test_deserialize_multiple_conditions() {
         let yaml = r"
-- type: max_age
-  max_age_hours: 24
+- type: age
+  min_hours: 24
 - type: always_true
-- type: max_age
-  max_age_hours: 168
+- type: age
+  min_hours: 168
 ";
         let configs: Vec<ConditionConfig> = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(configs.len(), 3);
-        assert_eq!(configs[0], ConditionConfig::MaxAge { max_age_hours: 24 });
+        assert_eq!(
+            configs[0],
+            ConditionConfig::Age {
+                min_hours: Some(24),
+                max_hours: None
+            }
+        );
         assert_eq!(configs[1], ConditionConfig::AlwaysTrue);
-        assert_eq!(configs[2], ConditionConfig::MaxAge { max_age_hours: 168 });
+        assert_eq!(
+            configs[2],
+            ConditionConfig::Age {
+                min_hours: Some(168),
+                max_hours: None
+            }
+        );
     }
 
     #[test]
@@ -148,7 +169,10 @@ type: unknown_condition
 
     #[test]
     fn test_into_condition_max_age() {
-        let config = ConditionConfig::MaxAge { max_age_hours: 24 };
+        let config = ConditionConfig::Age {
+            min_hours: Some(24),
+            max_hours: None,
+        };
         let condition = factory::build_condition(config);
         let context = Context::new();
 
@@ -176,7 +200,10 @@ type: unknown_condition
 
     #[test]
     fn test_condition_config_clone() {
-        let config = ConditionConfig::MaxAge { max_age_hours: 168 };
+        let config = ConditionConfig::Age {
+            min_hours: Some(168),
+            max_hours: None,
+        };
         let cloned = config.clone();
         assert_eq!(config, cloned);
 
@@ -188,7 +215,10 @@ type: unknown_condition
     #[test]
     fn test_convert_multiple_conditions() {
         let configs = vec![
-            ConditionConfig::MaxAge { max_age_hours: 24 },
+            ConditionConfig::Age {
+                min_hours: Some(24),
+                max_hours: None,
+            },
             ConditionConfig::AlwaysTrue,
         ];
 
