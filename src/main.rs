@@ -112,7 +112,7 @@ fn run_rebalance(
     // Acquire locks on all tiers before proceeding
     let _lock_guard = match TierLockGuard::try_lock_tiers(&tiers) {
         Ok(guard) => {
-            tracing::info!("Acquired locks on {} tiers", guard.locked_tiers().len());
+            tracing::info!("Acquired lock for {} tiers", tiers.len());
             guard
         }
         Err(tierflow::AppError::TierLocked {
