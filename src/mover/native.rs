@@ -11,9 +11,28 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
     const BUFFER_SIZE: usize = 1024 * 1024; // 1MB buffer for streaming
 
     let file = File::open(path)?;
+
     let metadata = file.metadata()?;
     let file_size = metadata.len();
     let size_gb = file_size as f64 / (1024.0 * 1024.0 * 1024.0);
+
+    // Tell kernel to drop cached pages after reading (prevents huge page cache buildup)
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = file.as_raw_fd();
+        unsafe {
+            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED);
+        }
+        tracing::debug!(
+            "Applied POSIX_FADV_DONTNEED to {} ({:.2} GB) to prevent page cache buildup",
+            path.display(),
+            size_gb
+        );
+    }
+
+    tracing::info!("Hashing file: {} ({:.2} GB)", path.display(), size_gb);
 
     // For small files, read all at once
     if file_size < 10 * 1024 * 1024 {
@@ -22,8 +41,8 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
         let mut reader = BufReader::new(file);
         reader.read_to_end(&mut buffer)?;
         let hash = xxh3_128(&buffer);
-        tracing::debug!(
-            "XXH3-128 hash for {} ({:.3} MB): {:032x}",
+        tracing::info!(
+            "Hash complete: {} ({:.3} MB) = {:032x}",
             path.display(),
             file_size as f64 / (1024.0 * 1024.0),
             hash
@@ -61,8 +80,8 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
     }
 
     let hash = hasher.digest128();
-    tracing::debug!(
-        "XXH3-128 hash for {} ({:.2} GB): {:032x}",
+    tracing::info!(
+        "Hash complete: {} ({:.2} GB) = {:032x}",
         path.display(),
         size_gb,
         hash
