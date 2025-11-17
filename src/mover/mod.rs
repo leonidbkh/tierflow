@@ -160,8 +160,11 @@ impl Mover for RsyncMover {
             destination.display()
         );
 
-        // Execute rsync - use status() instead of output() to avoid buffering
-        // large amounts of stdout/stderr in memory for big files
+        // Execute rsync with stdout/stderr discarded to prevent memory buildup
+        // from --progress output (especially important for large files)
+        use std::process::Stdio;
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+
         let status = cmd.status()?;
 
         if !status.success() {
