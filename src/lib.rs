@@ -10,7 +10,6 @@ pub mod executor;
 pub mod factory;
 pub mod file;
 pub mod file_checker;
-pub mod hasher;
 pub mod lock;
 pub mod mover;
 pub mod stats;
@@ -36,7 +35,6 @@ pub use file::FileInfo;
 pub use file_checker::{
     FileChecker, FileLockChecker, LsofFileChecker, NoOpFileChecker, SmartFileChecker,
 };
-pub use hasher::{CommandHasher, Hasher, NoOpHasher, SmartHasher, Xxh3Hasher};
 pub use lock::TierLockGuard;
 pub use mover::{DryRunMover, Mover, RsyncMover};
 pub use stats::{FileStats, GlobalStats};

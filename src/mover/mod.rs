@@ -1,11 +1,7 @@
-use crate::Hasher;
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
-
-// Native fast hashing
-pub mod native;
 
 /// Trait for moving files between tiers
 /// Different implementations can use rsync, cp, mv, etc.
@@ -25,45 +21,23 @@ pub trait Mover {
 pub struct DryRunMover;
 
 /// Rsync-based mover for actual file movement
-/// Uses rsync with --remove-source-files to move files efficiently
+/// Trusts rsync's built-in integrity verification (rolling checksums)
 pub struct RsyncMover {
     /// Additional rsync arguments (e.g., bandwidth limiting)
     extra_args: Vec<String>,
-    /// Hasher implementation for checksums
-    hasher: Box<dyn Hasher>,
 }
 
 impl RsyncMover {
-    /// Create a new `RsyncMover` with default hasher (`SmartHasher`)
+    /// Create a new `RsyncMover`
     pub fn new() -> Self {
         Self {
             extra_args: Vec::new(),
-            hasher: Box::new(crate::SmartHasher::new()),
         }
     }
 
-    /// Create a new `RsyncMover` with custom rsync arguments and default hasher
+    /// Create a new `RsyncMover` with custom rsync arguments
     pub fn with_args(args: Vec<String>) -> Self {
-        Self {
-            extra_args: args,
-            hasher: Box::new(crate::SmartHasher::new()),
-        }
-    }
-
-    /// Create a new `RsyncMover` with custom hasher
-    pub fn with_hasher(hasher: Box<dyn Hasher>) -> Self {
-        Self {
-            extra_args: Vec::new(),
-            hasher,
-        }
-    }
-
-    /// Create a new `RsyncMover` with custom rsync arguments and hasher
-    pub fn with_args_and_hasher(args: Vec<String>, hasher: Box<dyn Hasher>) -> Self {
-        Self {
-            extra_args: args,
-            hasher,
-        }
+        Self { extra_args: args }
     }
 }
 
@@ -85,28 +59,23 @@ impl Mover for RsyncMover {
 
         // Check if destination already exists
         if destination.exists() {
-            // Compare files to see if they're identical
             let source_metadata = fs::metadata(source)?;
             let dest_metadata = fs::metadata(destination)?;
 
-            // If sizes match, check checksums
-            if source_metadata.len() == dest_metadata.len() {
-                let source_checksum = self.hasher.calculate_hash(source)?;
-                let dest_checksum = self.hasher.calculate_hash(destination)?;
-
-                if source_checksum == dest_checksum {
-                    // Files are identical, just remove source
-                    tracing::info!(
-                        "Destination already exists and is identical: {} (checksum: {})",
-                        destination.display(),
-                        source_checksum
-                    );
-                    fs::remove_file(source)?;
-                    return Ok(());
-                }
+            // If size and mtime match, files are likely identical
+            // Just remove source and skip rsync (rsync would skip anyway)
+            if source_metadata.len() == dest_metadata.len()
+                && source_metadata.modified()? == dest_metadata.modified()?
+            {
+                tracing::info!(
+                    "Destination already exists with same size/mtime: {} - skipping copy",
+                    destination.display()
+                );
+                fs::remove_file(source)?;
+                return Ok(());
             }
 
-            // Files are different - rename destination with timestamp
+            // Files are different - backup destination with timestamp
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -199,19 +168,7 @@ impl Mover for RsyncMover {
             )));
         }
 
-        // Step 4: Calculate checksums for both files
-        let source_checksum = self.hasher.calculate_hash(source)?;
-        let dest_checksum = self.hasher.calculate_hash(&temp_destination)?;
-
-        if source_checksum != dest_checksum {
-            // Try to clean up the corrupted copy
-            let _ = fs::remove_file(&temp_destination);
-            return Err(io::Error::other(format!(
-                "Checksum mismatch after copy: source={source_checksum}, dest={dest_checksum}"
-            )));
-        }
-
-        // Step 5: Verify source file hasn't been modified during copy
+        // Step 4: Verify source file hasn't been modified during copy
         // (Protection against concurrent modifications - check both size and mtime)
         let source_metadata_after = fs::metadata(source)?;
 
@@ -233,25 +190,7 @@ impl Mover for RsyncMover {
             )));
         }
 
-        // Step 6: Double-check temporary destination integrity right before atomic rename
-        // (Protection against bit rot or corruption that happened after initial verification)
-        tracing::debug!("Performing final destination integrity check before atomic rename");
-        let dest_checksum_final = self.hasher.calculate_hash(&temp_destination)?;
-
-        if dest_checksum_final != source_checksum {
-            tracing::error!(
-                "Destination checksum changed after initial verification! Initial: {}, Final: {}",
-                dest_checksum,
-                dest_checksum_final
-            );
-            let _ = fs::remove_file(&temp_destination);
-            return Err(io::Error::other(format!(
-                "Destination file corrupted after verification. Not deleting source for safety: {}",
-                source.display()
-            )));
-        }
-
-        // Step 7: Atomic rename from .partial to final name
+        // Step 5: Atomic rename from .partial to final name
         // This is atomic - file appears instantly, preventing partial file access
         tracing::debug!(
             "Atomically renaming {} -> {}",
@@ -260,10 +199,10 @@ impl Mover for RsyncMover {
         );
         fs::rename(&temp_destination, destination)?;
 
-        // Step 8: Only now, after atomic rename, remove the source
+        // Step 6: Only now, after atomic rename, remove the source
         fs::remove_file(source)?;
 
-        // Step 9: Clean up empty parent directories
+        // Step 7: Clean up empty parent directories
         // Walk up the directory tree and remove empty directories
         if let Some(mut parent) = source.parent() {
             while let Some(parent_path) = parent.parent() {
@@ -300,10 +239,9 @@ impl Mover for RsyncMover {
         }
 
         tracing::info!(
-            "Successfully moved: {} -> {} (checksum: {})",
+            "Successfully moved: {} -> {}",
             source.display(),
-            destination.display(),
-            source_checksum
+            destination.display()
         );
 
         Ok(())
