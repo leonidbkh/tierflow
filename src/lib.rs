@@ -4,10 +4,13 @@ pub mod balancer;
 pub mod cli;
 pub mod conditions;
 pub mod config;
+pub mod disk;
 pub mod error;
 pub mod executor;
 pub mod factory;
 pub mod file;
+pub mod file_checker;
+pub mod hasher;
 pub mod lock;
 pub mod mover;
 pub mod stats;
@@ -26,9 +29,14 @@ pub use config::{
     BalancingConfig, ConditionConfig, ConfigError, MoverConfig, MoverType, PlacementStrategyConfig,
     StrategyAction, TautulliConfig, TierConfig,
 };
+pub use disk::{DiskOperations, RealDisk};
 pub use error::{AppError, Result};
 pub use executor::{ExecutionError, ExecutionResult, Executor};
 pub use file::FileInfo;
+pub use file_checker::{
+    FileChecker, FileLockChecker, LsofFileChecker, NoOpFileChecker, SmartFileChecker,
+};
+pub use hasher::{CommandHasher, Hasher, NoOpHasher, SmartHasher, Xxh3Hasher};
 pub use lock::TierLockGuard;
 pub use mover::{DryRunMover, Mover, RsyncMover};
 pub use stats::{FileStats, GlobalStats};

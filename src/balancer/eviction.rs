@@ -84,11 +84,13 @@ impl<'a> EvictionPlanner<'a> {
         // Sort candidates using eviction policy (can be changed later without breaking SRP)
         self.sort_eviction_candidates(&mut candidates, decisions);
 
-        let simulated_free = tier_free_space.get(tier_name).copied().unwrap_or(0);
-        let mut current_used = total.saturating_sub(simulated_free);
         let mut evicted_count = 0;
 
         for (idx, _priority, _file_size) in candidates {
+            // Get current usage from tier_free_space on each iteration
+            let simulated_free = tier_free_space.get(tier_name).copied().unwrap_or(0);
+            let current_used = total.saturating_sub(simulated_free);
+
             if current_used <= target_used {
                 break;
             }
@@ -126,14 +128,15 @@ impl<'a> EvictionPlanner<'a> {
                     &fallback_tier.name,
                 );
 
-                current_used = current_used.saturating_sub(file.size);
                 evicted_count += 1;
             }
         }
 
         if evicted_count > 0 {
+            let final_free = tier_free_space.get(tier_name).copied().unwrap_or(0);
+            let final_used = total.saturating_sub(final_free);
             let final_percent = if total > 0 {
-                (current_used as f64 / total as f64 * 100.0) as u64
+                (final_used as f64 / total as f64 * 100.0) as u64
             } else {
                 0
             };
@@ -412,13 +415,14 @@ impl<'a> EvictionPlanner<'a> {
 mod tests {
     use super::*;
     use crate::FileInfo;
-    use std::env;
-    use std::fs;
+
+    // Test constants for readability
+    const GB: u64 = 1024 * 1024 * 1024;
+    const TB: u64 = 1024 * GB;
 
     fn create_test_tier(name: &str, priority: u32, max_usage: Option<u64>) -> Tier {
-        let temp_dir = env::temp_dir().join(format!("eviction_test_{name}"));
-        fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, priority, max_usage, None).unwrap()
+        // Use fixed 1TB disk at 0% usage for predictable tests
+        Tier::new_mock_with_usage(name, priority, max_usage, TB, 0)
     }
 
     #[test]

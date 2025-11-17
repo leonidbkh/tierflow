@@ -1,0 +1,123 @@
+# Exclude Patterns Configuration
+# This example shows how to use 'action: stay' to exclude files
+# from tierflow management, keeping them where they are.
+
+tiers:
+  - name: cache
+    path: /mnt/nvme
+    priority: 1
+    max_usage_percent: 85
+
+  - name: storage
+    path: /mnt/hdds
+    priority: 10
+
+strategies:
+  # EXCLUSIONS - These strategies prevent files from being moved
+
+  # Exclude Tdarr transcoding files (highest priority)
+  - name: ignore_tdarr
+    priority: 999
+    action: stay               # Never move these files
+    conditions:
+      - type: path_prefix
+        prefix: "tdarr"
+        mode: whitelist
+    preferred_tiers: []        # Empty, files stay where they are
+
+  # Exclude incomplete downloads
+  - name: ignore_incomplete
+    priority: 998
+    action: stay
+    conditions:
+      - type: file_extension
+        extensions:
+          - "part"              # Partial downloads
+          - "!qB"               # qBittorrent incomplete
+          - "tmp"               # Temporary files
+          - "crdownload"        # Chrome downloads
+          - "download"          # Firefox downloads
+          - "aria2"             # Aria2 downloads
+          - "torrent"           # Torrent files themselves
+        mode: whitelist
+    preferred_tiers: []
+
+  # Exclude files being processed
+  - name: ignore_processing
+    priority: 997
+    action: stay
+    conditions:
+      - type: filename_contains
+        patterns:
+          - ".tmp."
+          - "_tmp_"
+          - "~tmp"
+          - "(incomplete)"
+          - "(processing)"
+        mode: whitelist
+        case_sensitive: false
+    preferred_tiers: []
+
+  # Exclude specific tools' working directories
+  - name: ignore_tool_dirs
+    priority: 996
+    action: stay
+    conditions:
+      - type: path_prefix
+        prefix: ".tmp"          # Hidden temp directories
+        mode: whitelist
+    preferred_tiers: []
+
+  # Exclude recently modified files (could be in use)
+  - name: ignore_very_recent
+    priority: 995
+    action: stay
+    conditions:
+      - type: age
+        max_hours: 1            # Less than 1 hour old
+    preferred_tiers: []
+
+  # Exclude lock files and system files
+  - name: ignore_system_files
+    priority: 994
+    action: stay
+    conditions:
+      - type: file_extension
+        extensions: ["lock", "lck", "pid", "sock"]
+        mode: whitelist
+    preferred_tiers: []
+
+  # NORMAL STRATEGIES - After exclusions, normal tiering applies
+
+  # Recent files on cache
+  - name: recent_on_cache
+    priority: 100
+    conditions:
+      - type: age
+        max_hours: 168          # 7 days
+    preferred_tiers:
+      - cache
+      - storage
+
+  # Old files to storage
+  - name: old_to_storage
+    priority: 50
+    conditions:
+      - type: age
+        min_hours: 720          # 30 days
+    preferred_tiers:
+      - storage
+
+  # Default for everything else
+  - name: default
+    priority: 10
+    conditions:
+      - type: always_true
+    preferred_tiers:
+      - cache
+      - storage
+
+# NOTE: Files matching 'action: stay' strategies will:
+# - Never be moved by tierflow
+# - Not be counted in tier usage calculations for eviction
+# - Remain exactly where they are

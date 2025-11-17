@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tierflow::{
-    Balancer, BalancingConfig, Cli, Commands, DryRunMover, Executor, Mover, MoverType,
-    OutputFormat, PlacementDecision, RsyncMover, TierLockGuard,
+    Balancer, BalancingConfig, Cli, Commands, Executor, OutputFormat, PlacementDecision,
+    TierLockGuard, factory,
 };
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -148,25 +148,10 @@ fn run_rebalance(
     // Execute plan
     tracing::info!("Executing plan...");
 
-    // Choose mover based on config and dry-run flag
-    let mover: Box<dyn Mover> = if dry_run {
-        tracing::info!("Dry-run mode: using DryRunMover");
-        Box::new(DryRunMover)
-    } else {
-        // Use mover from config
-        match mover_config.mover_type {
-            MoverType::Rsync => {
-                tracing::info!("Using RsyncMover from config");
-                Box::new(RsyncMover::with_args(mover_config.extra_args))
-            }
-            MoverType::DryRun => {
-                tracing::info!("Using DryRunMover from config");
-                Box::new(DryRunMover)
-            }
-        }
-    };
-
-    let result = Executor::execute_plan(&plan, mover.as_ref(), &tiers);
+    // Use factory functions for consistent initialization
+    let mover = factory::build_mover(Some(&mover_config), dry_run);
+    let file_checker = factory::build_file_checker();
+    let result = Executor::execute_plan(&plan, mover.as_ref(), &tiers, file_checker.as_ref());
 
     // Output result to stdout based on format
     match format {

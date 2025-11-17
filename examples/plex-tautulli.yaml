@@ -1,0 +1,85 @@
+# Plex Media Server with Tautulli Integration
+# This example keeps actively watched TV shows on fast storage,
+# while moving unwatched content to archive.
+
+tiers:
+  - name: cache
+    path: /mnt/nvme
+    priority: 1
+    max_usage_percent: 85
+
+  - name: storage
+    path: /mnt/hdds
+    priority: 10
+
+# Tautulli integration for smart caching
+tautulli:
+  enabled: true
+  url: "http://localhost:8181"
+  api_key: "YOUR_TAUTULLI_API_KEY"
+  history_length: 1000        # Fetch last 1000 history items
+  days_back: 30                # Consider last 30 days of viewing
+  watched_threshold: 90        # Consider >90% as watched
+  cache_dir: "/var/cache/tierflow"  # Optional: cache API responses
+
+strategies:
+  # PRIORITY 1: Keep actively watched TV shows on cache
+  - name: active_shows_on_cache
+    priority: 100
+    required: true  # Warn if can't keep active shows on cache
+    conditions:
+      - type: active_window
+        days_back: 30           # Check last 30 days of viewing
+        backward_episodes: 2    # Keep 2 episodes before last watched
+        forward_episodes: 5     # Keep 5 episodes after last watched
+      - type: path_prefix
+        prefix: "tv"            # Only TV shows
+        mode: whitelist
+    preferred_tiers:
+      - cache
+      - storage  # Fallback if cache is full
+
+  # PRIORITY 2: Recently added media stays on cache
+  - name: new_media_on_cache
+    priority: 90
+    conditions:
+      - type: age
+        max_hours: 168  # 7 days
+      - type: file_extension
+        extensions: ["mkv", "mp4", "avi"]
+        mode: whitelist
+    preferred_tiers:
+      - cache
+      - storage
+
+  # PRIORITY 3: Movies to storage after 2 weeks
+  - name: movies_to_storage
+    priority: 50
+    conditions:
+      - type: path_prefix
+        prefix: "movies"
+        mode: whitelist
+      - type: age
+        min_hours: 336  # 14 days
+    preferred_tiers:
+      - storage
+
+  # PRIORITY 4: Sample files always to storage
+  - name: samples_to_storage
+    priority: 70
+    conditions:
+      - type: filename_contains
+        patterns: ["sample", "trailer", "SAMPLE", "TRAILER"]
+        mode: whitelist
+        case_sensitive: false
+    preferred_tiers:
+      - storage
+
+  # DEFAULT: Everything else tries cache first
+  - name: default
+    priority: 10
+    conditions:
+      - type: always_true
+    preferred_tiers:
+      - cache
+      - storage

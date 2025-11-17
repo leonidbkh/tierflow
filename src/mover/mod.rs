@@ -1,7 +1,11 @@
+use crate::Hasher;
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
+
+// Native fast hashing
+pub mod native;
 
 /// Trait for moving files between tiers
 /// Different implementations can use rsync, cp, mv, etc.
@@ -25,101 +29,47 @@ pub struct DryRunMover;
 pub struct RsyncMover {
     /// Additional rsync arguments (e.g., bandwidth limiting)
     extra_args: Vec<String>,
+    /// Hasher implementation for checksums
+    hasher: Box<dyn Hasher>,
 }
 
 impl RsyncMover {
-    /// Create a new `RsyncMover` with default options
-    pub const fn new() -> Self {
+    /// Create a new `RsyncMover` with default hasher (`SmartHasher`)
+    pub fn new() -> Self {
         Self {
             extra_args: Vec::new(),
+            hasher: Box::new(crate::SmartHasher::new()),
         }
     }
 
-    /// Create a new `RsyncMover` with custom rsync arguments
-    pub const fn with_args(args: Vec<String>) -> Self {
-        Self { extra_args: args }
+    /// Create a new `RsyncMover` with custom rsync arguments and default hasher
+    pub fn with_args(args: Vec<String>) -> Self {
+        Self {
+            extra_args: args,
+            hasher: Box::new(crate::SmartHasher::new()),
+        }
     }
 
-    /// Calculate SHA256 checksum of a file
-    fn calculate_checksum(path: &Path) -> io::Result<String> {
-        use std::io::Read;
-
-        // Use xxhsum or sha256sum command for performance on large files
-        let output = Command::new("sha256sum").arg(path.as_os_str()).output();
-
-        match output {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                // sha256sum output format: "hash  filename"
-                if let Some(hash) = stdout.split_whitespace().next() {
-                    return Ok(hash.to_string());
-                }
-            }
-            _ => {
-                // Fallback to calculating in Rust if sha256sum is not available
-                let mut file = fs::File::open(path)?;
-                let mut buffer = Vec::new();
-
-                // For very large files, this might use a lot of memory
-                // Consider streaming hash calculation for production
-                file.read_to_end(&mut buffer)?;
-
-                // Simple checksum using std hash
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-
-                let mut hasher = DefaultHasher::new();
-                buffer.hash(&mut hasher);
-                let hash = hasher.finish();
-
-                return Ok(format!("{hash:016x}"));
-            }
+    /// Create a new `RsyncMover` with custom hasher
+    pub fn with_hasher(hasher: Box<dyn Hasher>) -> Self {
+        Self {
+            extra_args: Vec::new(),
+            hasher,
         }
+    }
 
-        Err(io::Error::other("Failed to calculate checksum"))
+    /// Create a new `RsyncMover` with custom rsync arguments and hasher
+    pub fn with_args_and_hasher(args: Vec<String>, hasher: Box<dyn Hasher>) -> Self {
+        Self {
+            extra_args: args,
+            hasher,
+        }
     }
 }
 
 impl Default for RsyncMover {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl RsyncMover {
-    /// Check if file is currently open by any process
-    fn is_file_in_use(path: &Path) -> io::Result<bool> {
-        // Use lsof to check if any process has the file open
-        // lsof is available on Linux, macOS, BSD
-        // -t: terse output (PIDs only, faster)
-        // Returns exit code 0 if file is open, 1 if not open
-        match Command::new("lsof")
-            .arg("-t") // Terse mode: only PIDs
-            .arg(path.as_os_str())
-            .output()
-        {
-            Ok(output) => {
-                // lsof returns exit code 0 if file is open by any process
-                Ok(output.status.success())
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                // lsof command not found - skip check with warning
-                tracing::warn!(
-                    "lsof command not found. Cannot verify if file is in use. \
-                     Consider installing lsof package for safer file operations."
-                );
-                Ok(false)
-            }
-            Err(e) => {
-                // Other error (permission denied, etc.)
-                tracing::warn!(
-                    "Failed to check if file is in use ({}): {}. Proceeding anyway.",
-                    path.display(),
-                    e
-                );
-                Ok(false)
-            }
-        }
     }
 }
 
@@ -133,14 +83,6 @@ impl Mover for RsyncMover {
             ));
         }
 
-        // Check if source file is currently in use
-        if Self::is_file_in_use(source)? {
-            return Err(io::Error::new(
-                io::ErrorKind::ResourceBusy,
-                format!("Source file is currently in use: {}", source.display()),
-            ));
-        }
-
         // Check if destination already exists
         if destination.exists() {
             // Compare files to see if they're identical
@@ -149,8 +91,8 @@ impl Mover for RsyncMover {
 
             // If sizes match, check checksums
             if source_metadata.len() == dest_metadata.len() {
-                let source_checksum = Self::calculate_checksum(source)?;
-                let dest_checksum = Self::calculate_checksum(destination)?;
+                let source_checksum = self.hasher.calculate_hash(source)?;
+                let dest_checksum = self.hasher.calculate_hash(destination)?;
 
                 if source_checksum == dest_checksum {
                     // Files are identical, just remove source
@@ -263,8 +205,8 @@ impl Mover for RsyncMover {
         }
 
         // Step 4: Calculate checksums for both files
-        let source_checksum = Self::calculate_checksum(source)?;
-        let dest_checksum = Self::calculate_checksum(&temp_destination)?;
+        let source_checksum = self.hasher.calculate_hash(source)?;
+        let dest_checksum = self.hasher.calculate_hash(&temp_destination)?;
 
         if source_checksum != dest_checksum {
             // Try to clean up the corrupted copy
@@ -296,24 +238,10 @@ impl Mover for RsyncMover {
             )));
         }
 
-        // Check if source file is in use before deleting
-        if Self::is_file_in_use(source)? {
-            tracing::warn!(
-                "Source file is now in use by another process. Not deleting: {}",
-                source.display()
-            );
-            // Clean up temporary file
-            let _ = fs::remove_file(&temp_destination);
-            return Err(io::Error::other(format!(
-                "Source file became in use during copy. Not deleting for safety: {}",
-                source.display()
-            )));
-        }
-
         // Step 6: Double-check temporary destination integrity right before atomic rename
         // (Protection against bit rot or corruption that happened after initial verification)
         tracing::debug!("Performing final destination integrity check before atomic rename");
-        let dest_checksum_final = Self::calculate_checksum(&temp_destination)?;
+        let dest_checksum_final = self.hasher.calculate_hash(&temp_destination)?;
 
         if dest_checksum_final != source_checksum {
             tracing::error!(

@@ -164,6 +164,15 @@ RUST_LOG=tierflow=debug tierflow rebalance
 RUST_LOG=tierflow::balancer=trace,tierflow::executor=debug tierflow rebalance
 ```
 
+## Configuration
+
+See the [examples directory](examples/) for complete, real-world configurations:
+- [simple-cache.yaml](examples/simple-cache.yaml) - Basic cache/archive setup
+- [plex-tautulli.yaml](examples/plex-tautulli.yaml) - Plex with Tautulli integration
+- [three-tier.yaml](examples/three-tier.yaml) - NVMe/SSD/HDD configuration
+- [exclude-patterns.yaml](examples/exclude-patterns.yaml) - Using `action: stay`
+- [download-automation.yaml](examples/download-automation.yaml) - Sonarr/Radarr integration
+
 ## How It Works
 
 ### Tiers (disks)
@@ -187,12 +196,23 @@ Define rules for which files should go where:
 strategies:
   - name: old_files_to_archive
     priority: 50             # higher number = higher priority
+    action: move             # Optional: 'move' (default) or 'stay'
+    required: false          # Optional: warn if strategy can't be satisfied
     conditions:
-      - type: max_age
-        max_age_hours: 720   # older than 30 days
+      - type: age
+        min_hours: 720       # older than 30 days
     preferred_tiers:
       - archive              # move to archive
 ```
+
+**Strategy Options:**
+- `priority`: Higher number = higher priority (matched first)
+- `action`:
+  - `move` (default) - Move files to preferred tiers
+  - `stay` - Keep files where they are (exclude from management)
+- `required`: If true, warns when files can't be placed on preferred tiers
+- `conditions`: List of conditions (all must match - AND logic)
+- `preferred_tiers`: Ordered list of tier preferences (tries first to last)
 
 If a file matches multiple strategies, the one with higher `priority` wins.
 
@@ -200,16 +220,20 @@ If a file matches multiple strategies, the one with higher `priority` wins.
 
 Available filters:
 
-| Condition | Description | Example |
-|-----------|-------------|---------|
-| `always_true` | All files | For default strategy |
-| `max_age` | Files older than N hours | `max_age_hours: 168` |
-| `file_size` | Files in size range | `min_size_mb: 100, max_size_mb: 5000` |
-| `file_extension` | By extension | `extensions: ["mkv", "mp4"], mode: whitelist` |
-| `path_prefix` | Files in specific folder | `prefix: "downloads", mode: whitelist` |
-| `filename_contains` | By substring in name | `patterns: ["sample"], mode: blacklist` |
+| Condition | Description | Parameters | Example |
+|-----------|-------------|------------|---------|
+| `always_true` | Matches all files | None | For default strategy |
+| `age` | Files within age range | `min_hours`, `max_hours` | `max_hours: 168` (older than 7 days) |
+| `file_size` | Files within size range | `min_size_mb`, `max_size_mb` | `min_size_mb: 100, max_size_mb: 5000` |
+| `file_extension` | Match by extension | `extensions`, `mode` | `extensions: ["mkv", "mp4"], mode: whitelist` |
+| `path_prefix` | Match by path prefix | `prefix`, `mode` | `prefix: "downloads", mode: whitelist` |
+| `filename_contains` | Match by filename substring | `patterns`, `mode`, `case_sensitive` | `patterns: ["sample"], mode: blacklist` |
+| `active_window` | Files in Tautulli viewing window | `days_back`, `backward_episodes`, `forward_episodes` | `backward_episodes: 2, forward_episodes: 5` |
 
-All conditions in one strategy must match (AND logic).
+**Notes:**
+- All conditions in a strategy must match (AND logic)
+- `mode` can be `whitelist` (match if present) or `blacklist` (match if NOT present)
+- `age` condition: use only `min_hours` for newer files, only `max_hours` for older files, or both for a range
 
 ## Configuration Examples
 
@@ -233,8 +257,8 @@ strategies:
   - name: recent_to_ssd
     priority: 100
     conditions:
-      - type: max_age
-        max_age_hours: 168
+      - type: age
+        max_hours: 168  # Less than 7 days old
     preferred_tiers:
       - ssd
       - hdd  # if SSD is full
@@ -268,8 +292,8 @@ strategies:
   - name: old_to_hdd
     priority: 100
     conditions:
-      - type: max_age
-        max_age_hours: 48
+      - type: age
+        min_hours: 48
       - type: path_prefix
         prefix: "downloads"
         mode: blacklist  # NOT in downloads folder
@@ -304,20 +328,55 @@ strategies:
 
 ### Example 4: Exclude incomplete downloads
 
-Don't move files that are still downloading:
+Keep incomplete downloads where they are using `action: stay`:
 
 ```yaml
 strategies:
-  - name: move_completed_only
-    priority: 50
+  # Don't move files being downloaded
+  - name: exclude_incomplete
+    priority: 999       # Very high priority to match first
+    action: stay        # Keep files where they are
     conditions:
-      - type: max_age
-        max_age_hours: 168
       - type: file_extension
         extensions: ["part", "!qB", "tmp", "crdownload"]
-        mode: blacklist  # NOT these extensions
-    preferred_tiers:
-      - hdd
+        mode: whitelist # Match these extensions
+    preferred_tiers: [] # Empty - files stay in place
+```
+
+## How Eviction Works
+
+When a tier reaches its `max_usage_percent`, tierflow automatically evicts files to make space:
+
+### Eviction Priority
+
+Files are evicted in this order:
+1. **Lowest strategy priority first** - Files with priority 0 (`no-match`) evicted first
+2. **Oldest files first** - Among same priority, older files evicted first
+3. **Largest files first** - Among same age, larger files evicted first
+
+### Eviction Process
+
+1. **Pass 1**: Scan all tiers and collect statistics
+2. **Pass 2**: Apply strategies and plan file movements
+3. **Pass 3a**: If high-priority files need space, evict lower-priority files
+4. **Pass 3b**: If any tier exceeds `max_usage_percent`, aggressively evict files
+
+### Special Cases
+
+- **`no-match` files**: Files not matching any strategy get priority 0 and are evicted first
+- **`action: stay` files**: Never evicted or moved, stay exactly where they are
+- **`required: true` strategies**: Generate warnings if files can't be placed as desired
+
+### Example Eviction Scenario
+
+```yaml
+# Tier at 90% full (max_usage_percent: 85)
+# Files will be evicted in this order:
+1. camera_recording.mp4  # no-match (priority 0)
+2. old_download.zip      # priority 10, 30 days old
+3. recent_movie.mkv      # priority 10, 7 days old, 5GB
+4. recent_episode.mp4    # priority 10, 7 days old, 1GB
+5. active_show.mkv       # priority 100 (won't be evicted)
 ```
 
 ## Operation Modes

@@ -1,4 +1,7 @@
-use crate::{BalancingPlan, Mover, PlacementDecision, Tier};
+use crate::{BalancingPlan, FileChecker, Mover, PlacementDecision, Tier};
+
+#[cfg(test)]
+use crate::NoOpFileChecker;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,10 +31,12 @@ impl Executor {
     /// * `plan` - План балансировки от Balancer
     /// * `mover` - Реализация Mover trait (`DryRunMover`, `RsyncMover`, и т.д.)
     /// * `tiers` - Список tier'ов для построения полных путей
+    /// * `file_checker` - Implementation of `FileChecker` trait (use `NoOpFileChecker` to skip checks)
     pub fn execute_plan(
         plan: &BalancingPlan,
         mover: &dyn Mover,
         tiers: &[Tier],
+        file_checker: &dyn FileChecker,
     ) -> ExecutionResult {
         let tier_map: HashMap<String, &Tier> = tiers.iter().map(|t| (t.name.clone(), t)).collect();
 
@@ -75,6 +80,34 @@ impl Executor {
                         from_tier,
                         to_tier
                     );
+
+                    // Check if file is in use before attempting to move
+                    match file_checker.is_file_in_use(&file.path) {
+                        Ok(true) => {
+                            tracing::warn!(
+                                "Skipping file in use: {} (strategy: {})",
+                                file.path.display(),
+                                strategy
+                            );
+                            result.errors.push(ExecutionError {
+                                file: file.path.clone(),
+                                from_tier: from_tier.clone(),
+                                to_tier: to_tier.clone(),
+                                error: "File is currently in use".to_string(),
+                            });
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Could not check if file {} is in use: {}. Proceeding anyway.",
+                                file.path.display(),
+                                e
+                            );
+                        }
+                        Ok(false) => {
+                            // File not in use, proceed
+                        }
+                    }
 
                     match Self::move_file_between_tiers(
                         &file.path, from_tier, to_tier, &tier_map, mover,
@@ -190,7 +223,8 @@ mod tests {
         let mover = DryRunMover;
         let tiers = vec![];
 
-        let result = Executor::execute_plan(&plan, &mover, &tiers);
+        let checker = NoOpFileChecker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
 
         assert_eq!(result.files_moved, 0);
         assert_eq!(result.files_stayed, 0);
@@ -224,7 +258,8 @@ mod tests {
         let mover = DryRunMover;
         let tiers = vec![cache];
 
-        let result = Executor::execute_plan(&plan, &mover, &tiers);
+        let checker = NoOpFileChecker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
 
         assert_eq!(result.files_moved, 0);
         assert_eq!(result.files_stayed, 2);
@@ -252,7 +287,8 @@ mod tests {
         let mover = DryRunMover;
         let tiers = vec![cache, storage];
 
-        let result = Executor::execute_plan(&plan, &mover, &tiers);
+        let checker = NoOpFileChecker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
 
         assert_eq!(result.files_moved, 1);
         assert_eq!(result.files_stayed, 0);
@@ -280,7 +316,8 @@ mod tests {
         let mover = DryRunMover;
         let tiers = vec![cache, storage];
 
-        let result = Executor::execute_plan(&plan, &mover, &tiers);
+        let checker = NoOpFileChecker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
 
         assert_eq!(result.files_moved, 1);
         assert_eq!(result.files_stayed, 0);
@@ -325,7 +362,8 @@ mod tests {
         let mover = DryRunMover;
         let tiers = vec![cache, storage];
 
-        let result = Executor::execute_plan(&plan, &mover, &tiers);
+        let checker = NoOpFileChecker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
 
         assert_eq!(result.files_moved, 2);
         assert_eq!(result.files_stayed, 1);
@@ -365,7 +403,8 @@ mod tests {
         let mover = DryRunMover;
         let tiers = vec![cache, storage];
 
-        let result = Executor::execute_plan(&plan, &mover, &tiers);
+        let checker = NoOpFileChecker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
 
         assert_eq!(result.files_moved, 1);
         assert_eq!(result.bytes_moved, 1000);
