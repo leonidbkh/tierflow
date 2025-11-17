@@ -61,7 +61,6 @@ impl PlacementStrategy {
 mod tests {
     use super::*;
     use crate::conditions::{AgeCondition, AlwaysTrueCondition};
-    use std::fs;
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
 
@@ -75,10 +74,12 @@ mod tests {
         }
     }
 
+    // Test constants
+    const TB: u64 = 1024 * 1024 * 1024 * 1024;
+
     fn create_test_tier(name: &str) -> Tier {
-        let temp_dir = std::env::temp_dir().join(format!("tier_test_{name}"));
-        fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, 1, None, None).unwrap()
+        // Use fixed 1TB disk at 0% usage for predictable tests
+        Tier::new_mock_with_usage(name, 1, None, TB, 0)
     }
 
     #[test]

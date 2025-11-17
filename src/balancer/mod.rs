@@ -397,13 +397,13 @@ impl Balancer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use std::fs;
+
+    // Test constants for readability
+    const TB: u64 = 1024 * 1024 * 1024 * 1024;
 
     fn create_test_tier(name: &str, priority: u32, max_usage: Option<u64>) -> Tier {
-        let temp_dir = env::temp_dir().join(format!("balancer_test_{name}"));
-        fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, priority, max_usage, None).unwrap()
+        // Use fixed 1TB disk at 0% usage for predictable tests
+        Tier::new_mock_with_usage(name, priority, max_usage, TB, 0)
     }
 
     #[test]
@@ -456,11 +456,14 @@ mod tests {
             );
 
             // Large file should exceed max_usage even if there's physical space
-            // Use total size to ensure it definitely exceeds the 50% limit
-            let large_file = (total / 2) + 1024;
+            // File size needs to result in >50% usage, not exactly 50%
+            // With 0% current usage, file must be >50% of total
+            // Add extra to account for integer rounding
+            let large_file = (total / 2) + (total / 10); // 60% of total
             assert!(
                 !balancer.can_accept_file(&tier, large_file, current_free),
-                "Should reject file exceeding max_usage_percent limit"
+                "Should reject file exceeding max_usage_percent limit (would result in {}% usage)",
+                ((large_file as f64 / total as f64) * 100.0) as u64
             );
         } else {
             // Disk already over limit - should reject any file
