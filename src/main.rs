@@ -166,7 +166,9 @@ fn run_rebalance(
         }
     };
 
-    let result = Executor::execute_plan(&plan, mover.as_ref(), &tiers);
+    // Use smart file checker that tries lsof first, then falls back to file locking
+    let file_checker = tierflow::SmartFileChecker::new();
+    let result = Executor::execute_plan(&plan, mover.as_ref(), &tiers, &file_checker);
 
     // Output result to stdout based on format
     match format {

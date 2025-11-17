@@ -56,56 +56,6 @@ impl Default for RsyncMover {
     }
 }
 
-impl RsyncMover {
-    /// Check if file is currently open by any process using file locking
-    fn is_file_in_use(path: &Path) -> io::Result<bool> {
-        use fs2::FileExt;
-
-        // Try to open the file for reading
-        match fs::File::open(path) {
-            Ok(file) => {
-                // Try to get exclusive lock (non-blocking)
-                // This will fail if another process has the file open for writing
-                match file.try_lock_exclusive() {
-                    Ok(()) => {
-                        // We got the lock, file is likely not in use
-                        // Immediately unlock
-                        let _ = file.unlock();
-                        Ok(false)
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        // Lock would block = file is in use
-                        tracing::debug!("File {} is in use (lock would block)", path.display());
-                        Ok(true)
-                    }
-                    Err(e) => {
-                        // Other locking error - assume file might be in use
-                        tracing::warn!(
-                            "Could not check lock status for {}: {}. Assuming in use.",
-                            path.display(),
-                            e
-                        );
-                        Ok(true)
-                    }
-                }
-            }
-            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                // Permission denied might mean file is locked by another process
-                tracing::debug!(
-                    "File {} might be in use (permission denied)",
-                    path.display()
-                );
-                Ok(true)
-            }
-            Err(e) => {
-                // File doesn't exist or other error - not in use
-                tracing::debug!("File {} check failed: {}", path.display(), e);
-                Ok(false)
-            }
-        }
-    }
-}
-
 impl Mover for RsyncMover {
     fn move_file(&self, source: &Path, destination: &Path) -> io::Result<()> {
         // Check if source exists
@@ -113,14 +63,6 @@ impl Mover for RsyncMover {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("Source file does not exist: {}", source.display()),
-            ));
-        }
-
-        // Check if source file is currently in use
-        if Self::is_file_in_use(source)? {
-            return Err(io::Error::new(
-                io::ErrorKind::ResourceBusy,
-                format!("Source file is currently in use: {}", source.display()),
             ));
         }
 
@@ -276,20 +218,6 @@ impl Mover for RsyncMover {
             return Err(io::Error::other(format!(
                 "Source file was modified during copy. Stale copy removed: {}",
                 temp_destination.display()
-            )));
-        }
-
-        // Check if source file is in use before deleting
-        if Self::is_file_in_use(source)? {
-            tracing::warn!(
-                "Source file is now in use by another process. Not deleting: {}",
-                source.display()
-            );
-            // Clean up temporary file
-            let _ = fs::remove_file(&temp_destination);
-            return Err(io::Error::other(format!(
-                "Source file became in use during copy. Not deleting for safety: {}",
-                source.display()
             )));
         }
 
