@@ -30,9 +30,6 @@ walkdir = "2.5.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json", "fmt"] }
 
-xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
-libc = "0.2.177"
-
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }
 

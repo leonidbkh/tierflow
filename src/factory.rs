@@ -4,8 +4,7 @@ use crate::conditions::{
 };
 use crate::config::{ConditionConfig, MoverConfig, MoverType, PlacementStrategyConfig};
 use crate::{
-    Condition, DryRunMover, FileChecker, Hasher, Mover, PlacementStrategy, RsyncMover,
-    SmartFileChecker, SmartHasher,
+    Condition, DryRunMover, FileChecker, Mover, PlacementStrategy, RsyncMover, SmartFileChecker,
 };
 
 pub fn build_strategy(config: PlacementStrategyConfig) -> PlacementStrategy {
@@ -74,17 +73,11 @@ pub fn build_mover(config: Option<&MoverConfig>, dry_run: bool) -> Box<dyn Mover
         return Box::new(DryRunMover);
     }
 
-    // Create a consistent hasher for all movers
-    let hasher: Box<dyn Hasher> = Box::new(SmartHasher::new());
-
     if let Some(config) = config {
         match config.mover_type {
             MoverType::Rsync => {
-                tracing::info!("Using RsyncMover with SmartHasher");
-                Box::new(RsyncMover::with_args_and_hasher(
-                    config.extra_args.clone(),
-                    hasher,
-                ))
+                tracing::info!("Using RsyncMover");
+                Box::new(RsyncMover::with_args(config.extra_args.clone()))
             }
             MoverType::DryRun => {
                 tracing::info!("Using DryRunMover from config");
@@ -92,17 +85,12 @@ pub fn build_mover(config: Option<&MoverConfig>, dry_run: bool) -> Box<dyn Mover
             }
         }
     } else {
-        tracing::info!("Using RsyncMover with SmartHasher (default)");
-        Box::new(RsyncMover::with_hasher(hasher))
+        tracing::info!("Using RsyncMover (default)");
+        Box::new(RsyncMover::new())
     }
 }
 
 /// Create a file checker with default implementation
 pub fn build_file_checker() -> Box<dyn FileChecker> {
     Box::new(SmartFileChecker::new())
-}
-
-/// Create a hasher with default implementation
-pub fn build_hasher() -> Box<dyn Hasher> {
-    Box::new(SmartHasher::new())
 }
