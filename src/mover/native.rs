@@ -11,25 +11,9 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
     const BUFFER_SIZE: usize = 1024 * 1024; // 1MB buffer for streaming
 
     let file = File::open(path)?;
-
     let metadata = file.metadata()?;
     let file_size = metadata.len();
     let size_gb = file_size as f64 / (1024.0 * 1024.0 * 1024.0);
-
-    #[cfg(target_os = "linux")]
-    use std::os::unix::io::AsRawFd;
-
-    // Get file descriptor for Linux optimizations
-    #[cfg(target_os = "linux")]
-    let fd = file.as_raw_fd();
-
-    // Tell kernel we'll read sequentially (optimization hint)
-    #[cfg(target_os = "linux")]
-    unsafe {
-        libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-    }
-
-    tracing::info!("Hashing file: {} ({:.2} GB)", path.display(), size_gb);
 
     // For small files, read all at once
     if file_size < 10 * 1024 * 1024 {
@@ -38,15 +22,8 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
         let mut reader = BufReader::new(file);
         reader.read_to_end(&mut buffer)?;
         let hash = xxh3_128(&buffer);
-
-        // Drop cached pages for small files too
-        #[cfg(target_os = "linux")]
-        unsafe {
-            libc::posix_fadvise(fd, 0, file_size as i64, libc::POSIX_FADV_DONTNEED);
-        }
-
-        tracing::info!(
-            "Hash complete: {} ({:.3} MB) = {:032x}",
+        tracing::debug!(
+            "XXH3-128 hash for {} ({:.3} MB): {:032x}",
             path.display(),
             file_size as f64 / (1024.0 * 1024.0),
             hash
@@ -54,15 +31,12 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
         return Ok(format!("{:032x}", hash));
     }
 
-    // For large files, use streaming and drop pages progressively
+    // For large files, use streaming
     let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
     let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new().build();
     let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut total_read = 0u64;
     let mut last_log_gb = 0;
-
-    #[cfg(target_os = "linux")]
-    let mut last_fadvise_offset = 0i64;
 
     loop {
         let bytes_read = reader.read(&mut buffer)?;
@@ -72,31 +46,6 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
 
         hasher.update(&buffer[..bytes_read]);
         total_read += bytes_read as u64;
-
-        // Drop cached pages every 100MB to prevent page cache buildup
-        #[cfg(target_os = "linux")]
-        {
-            const DROP_INTERVAL: i64 = 100 * 1024 * 1024; // 100MB
-            let current_offset = total_read as i64;
-            if current_offset - last_fadvise_offset >= DROP_INTERVAL {
-                let drop_len = current_offset - last_fadvise_offset;
-                unsafe {
-                    libc::posix_fadvise(
-                        fd,
-                        last_fadvise_offset,
-                        drop_len,
-                        libc::POSIX_FADV_DONTNEED,
-                    );
-                }
-                tracing::debug!(
-                    "Dropped {}MB of page cache for {} (offset: {:.2}GB)",
-                    drop_len / (1024 * 1024),
-                    path.display(),
-                    last_fadvise_offset as f64 / (1024.0 * 1024.0 * 1024.0)
-                );
-                last_fadvise_offset = current_offset;
-            }
-        }
 
         // Log progress for very large files
         let current_gb = total_read / (1024 * 1024 * 1024);
@@ -111,28 +60,9 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
         }
     }
 
-    // Drop any remaining cached pages
-    #[cfg(target_os = "linux")]
-    if last_fadvise_offset < total_read as i64 {
-        let remaining = total_read as i64 - last_fadvise_offset;
-        unsafe {
-            libc::posix_fadvise(
-                fd,
-                last_fadvise_offset,
-                remaining,
-                libc::POSIX_FADV_DONTNEED,
-            );
-        }
-        tracing::debug!(
-            "Dropped final {}MB of page cache for {}",
-            remaining / (1024 * 1024),
-            path.display()
-        );
-    }
-
     let hash = hasher.digest128();
-    tracing::info!(
-        "Hash complete: {} ({:.2} GB) = {:032x}",
+    tracing::debug!(
+        "XXH3-128 hash for {} ({:.2} GB): {:032x}",
         path.display(),
         size_gb,
         hash
