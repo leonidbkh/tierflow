@@ -3,6 +3,10 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
+// Native fast hashing
+mod native;
+use native::calculate_checksum_native;
+
 /// Trait for moving files between tiers
 /// Different implementations can use rsync, cp, mv, etc.
 pub trait Mover {
@@ -40,43 +44,9 @@ impl RsyncMover {
         Self { extra_args: args }
     }
 
-    /// Calculate SHA256 checksum of a file
+    /// Calculate checksum of a file using built-in XXH3-128
     fn calculate_checksum(path: &Path) -> io::Result<String> {
-        use std::io::Read;
-
-        // Use xxhsum or sha256sum command for performance on large files
-        let output = Command::new("sha256sum").arg(path.as_os_str()).output();
-
-        match output {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                // sha256sum output format: "hash  filename"
-                if let Some(hash) = stdout.split_whitespace().next() {
-                    return Ok(hash.to_string());
-                }
-            }
-            _ => {
-                // Fallback to calculating in Rust if sha256sum is not available
-                let mut file = fs::File::open(path)?;
-                let mut buffer = Vec::new();
-
-                // For very large files, this might use a lot of memory
-                // Consider streaming hash calculation for production
-                file.read_to_end(&mut buffer)?;
-
-                // Simple checksum using std hash
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-
-                let mut hasher = DefaultHasher::new();
-                buffer.hash(&mut hasher);
-                let hash = hasher.finish();
-
-                return Ok(format!("{hash:016x}"));
-            }
-        }
-
-        Err(io::Error::other("Failed to calculate checksum"))
+        calculate_checksum_native(path)
     }
 }
 
@@ -87,36 +57,49 @@ impl Default for RsyncMover {
 }
 
 impl RsyncMover {
-    /// Check if file is currently open by any process
+    /// Check if file is currently open by any process using file locking
     fn is_file_in_use(path: &Path) -> io::Result<bool> {
-        // Use lsof to check if any process has the file open
-        // lsof is available on Linux, macOS, BSD
-        // -t: terse output (PIDs only, faster)
-        // Returns exit code 0 if file is open, 1 if not open
-        match Command::new("lsof")
-            .arg("-t") // Terse mode: only PIDs
-            .arg(path.as_os_str())
-            .output()
-        {
-            Ok(output) => {
-                // lsof returns exit code 0 if file is open by any process
-                Ok(output.status.success())
+        use fs2::FileExt;
+
+        // Try to open the file for reading
+        match fs::File::open(path) {
+            Ok(file) => {
+                // Try to get exclusive lock (non-blocking)
+                // This will fail if another process has the file open for writing
+                match file.try_lock_exclusive() {
+                    Ok(()) => {
+                        // We got the lock, file is likely not in use
+                        // Immediately unlock
+                        let _ = file.unlock();
+                        Ok(false)
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        // Lock would block = file is in use
+                        tracing::debug!("File {} is in use (lock would block)", path.display());
+                        Ok(true)
+                    }
+                    Err(e) => {
+                        // Other locking error - assume file might be in use
+                        tracing::warn!(
+                            "Could not check lock status for {}: {}. Assuming in use.",
+                            path.display(),
+                            e
+                        );
+                        Ok(true)
+                    }
+                }
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                // lsof command not found - skip check with warning
-                tracing::warn!(
-                    "lsof command not found. Cannot verify if file is in use. \
-                     Consider installing lsof package for safer file operations."
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                // Permission denied might mean file is locked by another process
+                tracing::debug!(
+                    "File {} might be in use (permission denied)",
+                    path.display()
                 );
-                Ok(false)
+                Ok(true)
             }
             Err(e) => {
-                // Other error (permission denied, etc.)
-                tracing::warn!(
-                    "Failed to check if file is in use ({}): {}. Proceeding anyway.",
-                    path.display(),
-                    e
-                );
+                // File doesn't exist or other error - not in use
+                tracing::debug!("File {} check failed: {}", path.display(), e);
                 Ok(false)
             }
         }

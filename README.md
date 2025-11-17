@@ -292,8 +292,8 @@ strategies:
   - name: old_to_hdd
     priority: 100
     conditions:
-      - type: max_age
-        max_age_hours: 48
+      - type: age
+        min_hours: 48
       - type: path_prefix
         prefix: "downloads"
         mode: blacklist  # NOT in downloads folder
