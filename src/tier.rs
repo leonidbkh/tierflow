@@ -1,19 +1,35 @@
+use crate::disk::{DiskOperations, RealDisk};
 use crate::file::FileInfo;
-use fs2::statvfs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 use walkdir::WalkDir;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Tier {
     pub name: String,
     pub path: PathBuf,
     pub priority: u32,
     pub max_usage_percent: Option<u64>,
     pub min_usage_percent: Option<u64>,
+    disk_ops: Arc<dyn DiskOperations>,
+}
+
+// Manual Debug implementation to avoid requiring DiskOperations: Debug
+impl std::fmt::Debug for Tier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tier")
+            .field("name", &self.name)
+            .field("path", &self.path)
+            .field("priority", &self.priority)
+            .field("max_usage_percent", &self.max_usage_percent)
+            .field("min_usage_percent", &self.min_usage_percent)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Tier {
+    /// Create a new tier with real disk operations
     pub fn new(
         name: String,
         path: PathBuf,
@@ -21,17 +37,59 @@ impl Tier {
         max_usage_percent: Option<u64>,
         min_usage_percent: Option<u64>,
     ) -> io::Result<Self> {
-        if !path.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("Path does not exist: {}", path.display()),
-            ));
-        }
-        if !path.is_dir() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Path is not a directory: {}", path.display()),
-            ));
+        Self::with_disk_ops(
+            name,
+            path,
+            priority,
+            max_usage_percent,
+            min_usage_percent,
+            Arc::new(RealDisk::new()),
+        )
+    }
+
+    /// Internal constructor that accepts custom `DiskOperations`
+    fn with_disk_ops(
+        name: String,
+        path: PathBuf,
+        priority: u32,
+        max_usage_percent: Option<u64>,
+        min_usage_percent: Option<u64>,
+        disk_ops: Arc<dyn DiskOperations>,
+    ) -> io::Result<Self> {
+        Self::with_disk_ops_internal(
+            name,
+            path,
+            priority,
+            max_usage_percent,
+            min_usage_percent,
+            disk_ops,
+            false, // validate path
+        )
+    }
+
+    /// Internal constructor with path validation control
+    fn with_disk_ops_internal(
+        name: String,
+        path: PathBuf,
+        priority: u32,
+        max_usage_percent: Option<u64>,
+        min_usage_percent: Option<u64>,
+        disk_ops: Arc<dyn DiskOperations>,
+        skip_path_validation: bool,
+    ) -> io::Result<Self> {
+        if !skip_path_validation {
+            if !path.exists() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Path does not exist: {}", path.display()),
+                ));
+            }
+            if !path.is_dir() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Path is not a directory: {}", path.display()),
+                ));
+            }
         }
 
         if let Some(max) = max_usage_percent {
@@ -74,19 +132,16 @@ impl Tier {
             priority,
             max_usage_percent,
             min_usage_percent,
+            disk_ops,
         })
     }
 
     pub fn get_free_space(&self) -> u64 {
-        statvfs(&self.path)
-            .map(|stat| stat.available_space())
-            .unwrap_or(0)
+        self.disk_ops.get_free_space(&self.path)
     }
 
     pub fn get_total_space(&self) -> u64 {
-        statvfs(&self.path)
-            .map(|stat| stat.total_space())
-            .unwrap_or(1)
+        self.disk_ops.get_total_space(&self.path)
     }
 
     pub fn usage_percent(&self) -> u64 {
@@ -172,10 +227,69 @@ impl Tier {
 }
 
 #[cfg(test)]
+impl Tier {
+    /// Create a mock tier for testing with specific disk space values
+    pub fn new_mock(
+        name: impl Into<String>,
+        priority: u32,
+        max_usage_percent: Option<u64>,
+        total_space: u64,
+        free_space: u64,
+    ) -> Self {
+        use crate::disk::MockDisk;
+
+        let mock_disk = Arc::new(MockDisk::new(total_space, free_space));
+        Self::with_disk_ops_internal(
+            name.into(),
+            PathBuf::from("/mock"),
+            priority,
+            max_usage_percent,
+            None,
+            mock_disk,
+            true, // skip path validation
+        )
+        .expect("Mock tier creation should never fail")
+    }
+
+    /// Create a mock tier with a specific usage percentage
+    pub fn new_mock_with_usage(
+        name: impl Into<String>,
+        priority: u32,
+        max_usage_percent: Option<u64>,
+        total_space: u64,
+        used_percent: u8,
+    ) -> Self {
+        use crate::disk::MockDisk;
+
+        let mock_disk = Arc::new(MockDisk::with_usage_percent(total_space, used_percent));
+        Self::with_disk_ops_internal(
+            name.into(),
+            PathBuf::from("/mock"),
+            priority,
+            max_usage_percent,
+            None,
+            mock_disk,
+            true, // skip path validation
+        )
+        .expect("Mock tier creation should never fail")
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::env;
     use std::fs;
+
+    // Test constants for readability
+    #[allow(dead_code)]
+    const KB: u64 = 1024;
+    #[allow(dead_code)]
+    const MB: u64 = 1024 * KB;
+    #[allow(dead_code)]
+    const GB: u64 = 1024 * MB;
+    #[allow(dead_code)]
+    const TB: u64 = 1024 * GB;
 
     #[test]
     fn test_tier_creation_valid_path() {

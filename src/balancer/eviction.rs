@@ -415,13 +415,14 @@ impl<'a> EvictionPlanner<'a> {
 mod tests {
     use super::*;
     use crate::FileInfo;
-    use std::env;
-    use std::fs;
+
+    // Test constants for readability
+    const GB: u64 = 1024 * 1024 * 1024;
+    const TB: u64 = 1024 * GB;
 
     fn create_test_tier(name: &str, priority: u32, max_usage: Option<u64>) -> Tier {
-        let temp_dir = env::temp_dir().join(format!("eviction_test_{name}"));
-        fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, priority, max_usage, None).unwrap()
+        // Use fixed 1TB disk at 0% usage for predictable tests
+        Tier::new_mock_with_usage(name, priority, max_usage, TB, 0)
     }
 
     #[test]

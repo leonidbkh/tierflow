@@ -4,6 +4,7 @@ pub mod balancer;
 pub mod cli;
 pub mod conditions;
 pub mod config;
+pub mod disk;
 pub mod error;
 pub mod executor;
 pub mod factory;
@@ -28,6 +29,7 @@ pub use config::{
     BalancingConfig, ConditionConfig, ConfigError, MoverConfig, MoverType, PlacementStrategyConfig,
     StrategyAction, TautulliConfig, TierConfig,
 };
+pub use disk::{DiskOperations, RealDisk};
 pub use error::{AppError, Result};
 pub use executor::{ExecutionError, ExecutionResult, Executor};
 pub use file::FileInfo;
