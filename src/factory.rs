@@ -2,8 +2,11 @@ use crate::conditions::{
     ActiveWindowCondition, AgeCondition, AlwaysTrueCondition, FileExtensionCondition,
     FileSizeCondition, FilenameContainsCondition, PathPrefixCondition,
 };
-use crate::config::{ConditionConfig, PlacementStrategyConfig};
-use crate::{Condition, PlacementStrategy};
+use crate::config::{ConditionConfig, MoverConfig, MoverType, PlacementStrategyConfig};
+use crate::{
+    Condition, DryRunMover, FileChecker, Hasher, Mover, PlacementStrategy, RsyncMover,
+    SmartFileChecker, SmartHasher,
+};
 
 pub fn build_strategy(config: PlacementStrategyConfig) -> PlacementStrategy {
     let mut strategy = PlacementStrategy::new(config.name, config.priority);
@@ -61,4 +64,45 @@ pub fn build_condition(config: ConditionConfig) -> Box<dyn Condition> {
         }
         ConditionConfig::ActiveWindow { name } => Box::new(ActiveWindowCondition::new(name)),
     }
+}
+
+/// Create a mover based on configuration
+/// Uses a consistent hasher implementation across all movers
+pub fn build_mover(config: Option<&MoverConfig>, dry_run: bool) -> Box<dyn Mover> {
+    if dry_run {
+        tracing::info!("Dry-run mode: using DryRunMover");
+        return Box::new(DryRunMover);
+    }
+
+    // Create a consistent hasher for all movers
+    let hasher: Box<dyn Hasher> = Box::new(SmartHasher::new());
+
+    if let Some(config) = config {
+        match config.mover_type {
+            MoverType::Rsync => {
+                tracing::info!("Using RsyncMover with SmartHasher");
+                Box::new(RsyncMover::with_args_and_hasher(
+                    config.extra_args.clone(),
+                    hasher,
+                ))
+            }
+            MoverType::DryRun => {
+                tracing::info!("Using DryRunMover from config");
+                Box::new(DryRunMover)
+            }
+        }
+    } else {
+        tracing::info!("Using RsyncMover with SmartHasher (default)");
+        Box::new(RsyncMover::with_hasher(hasher))
+    }
+}
+
+/// Create a file checker with default implementation
+pub fn build_file_checker() -> Box<dyn FileChecker> {
+    Box::new(SmartFileChecker::new())
+}
+
+/// Create a hasher with default implementation
+pub fn build_hasher() -> Box<dyn Hasher> {
+    Box::new(SmartHasher::new())
 }

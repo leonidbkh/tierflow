@@ -1,11 +1,11 @@
+use crate::Hasher;
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
 // Native fast hashing
-mod native;
-use native::calculate_checksum_native;
+pub mod native;
 
 /// Trait for moving files between tiers
 /// Different implementations can use rsync, cp, mv, etc.
@@ -29,24 +29,41 @@ pub struct DryRunMover;
 pub struct RsyncMover {
     /// Additional rsync arguments (e.g., bandwidth limiting)
     extra_args: Vec<String>,
+    /// Hasher implementation for checksums
+    hasher: Box<dyn Hasher>,
 }
 
 impl RsyncMover {
-    /// Create a new `RsyncMover` with default options
-    pub const fn new() -> Self {
+    /// Create a new `RsyncMover` with default hasher (`SmartHasher`)
+    pub fn new() -> Self {
         Self {
             extra_args: Vec::new(),
+            hasher: Box::new(crate::SmartHasher::new()),
         }
     }
 
-    /// Create a new `RsyncMover` with custom rsync arguments
-    pub const fn with_args(args: Vec<String>) -> Self {
-        Self { extra_args: args }
+    /// Create a new `RsyncMover` with custom rsync arguments and default hasher
+    pub fn with_args(args: Vec<String>) -> Self {
+        Self {
+            extra_args: args,
+            hasher: Box::new(crate::SmartHasher::new()),
+        }
     }
 
-    /// Calculate checksum of a file using built-in XXH3-128
-    fn calculate_checksum(path: &Path) -> io::Result<String> {
-        calculate_checksum_native(path)
+    /// Create a new `RsyncMover` with custom hasher
+    pub fn with_hasher(hasher: Box<dyn Hasher>) -> Self {
+        Self {
+            extra_args: Vec::new(),
+            hasher,
+        }
+    }
+
+    /// Create a new `RsyncMover` with custom rsync arguments and hasher
+    pub fn with_args_and_hasher(args: Vec<String>, hasher: Box<dyn Hasher>) -> Self {
+        Self {
+            extra_args: args,
+            hasher,
+        }
     }
 }
 
@@ -74,8 +91,8 @@ impl Mover for RsyncMover {
 
             // If sizes match, check checksums
             if source_metadata.len() == dest_metadata.len() {
-                let source_checksum = Self::calculate_checksum(source)?;
-                let dest_checksum = Self::calculate_checksum(destination)?;
+                let source_checksum = self.hasher.calculate_hash(source)?;
+                let dest_checksum = self.hasher.calculate_hash(destination)?;
 
                 if source_checksum == dest_checksum {
                     // Files are identical, just remove source
@@ -188,8 +205,8 @@ impl Mover for RsyncMover {
         }
 
         // Step 4: Calculate checksums for both files
-        let source_checksum = Self::calculate_checksum(source)?;
-        let dest_checksum = Self::calculate_checksum(&temp_destination)?;
+        let source_checksum = self.hasher.calculate_hash(source)?;
+        let dest_checksum = self.hasher.calculate_hash(&temp_destination)?;
 
         if source_checksum != dest_checksum {
             // Try to clean up the corrupted copy
@@ -224,7 +241,7 @@ impl Mover for RsyncMover {
         // Step 6: Double-check temporary destination integrity right before atomic rename
         // (Protection against bit rot or corruption that happened after initial verification)
         tracing::debug!("Performing final destination integrity check before atomic rename");
-        let dest_checksum_final = Self::calculate_checksum(&temp_destination)?;
+        let dest_checksum_final = self.hasher.calculate_hash(&temp_destination)?;
 
         if dest_checksum_final != source_checksum {
             tracing::error!(
