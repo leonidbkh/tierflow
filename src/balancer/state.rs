@@ -52,14 +52,12 @@ impl PlanningState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    fn create_test_tier(name: &str, _size: u64) -> Tier {
-        let temp_dir = std::env::temp_dir().join(format!("tier_state_test_{name}"));
-        fs::create_dir_all(&temp_dir).unwrap();
-        Tier::new(name.to_string(), temp_dir, 1, None, None).unwrap()
+    fn create_test_tier(name: &str, total_size: u64) -> Tier {
+        // Use mock disk with specified total size at 0% usage
+        Tier::new_mock_with_usage(name, 1, None, total_size, 0)
     }
 
     #[test]

@@ -160,25 +160,20 @@ impl Mover for RsyncMover {
             destination.display()
         );
 
-        // Execute rsync
-        let output = cmd.output()?;
+        // Execute rsync - use status() instead of output() to avoid buffering
+        // large amounts of stdout/stderr in memory for big files
+        let status = cmd.status()?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-
+        if !status.success() {
             tracing::error!(
-                "Rsync failed for {} -> {}\nstdout: {}\nstderr: {}",
+                "Rsync failed for {} -> {}",
                 source.display(),
-                destination.display(),
-                stdout,
-                stderr
+                destination.display()
             );
 
             return Err(io::Error::other(format!(
-                "rsync failed with exit code {:?}: {}",
-                output.status.code(),
-                stderr
+                "rsync failed with exit code {:?}",
+                status.code()
             )));
         }
 

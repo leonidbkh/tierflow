@@ -197,6 +197,7 @@ mod tests {
     use std::time::SystemTime;
 
     fn create_test_tier(name: &str) -> Tier {
+        // Executor tests need real filesystem for actual file operations
         let temp_dir = std::env::temp_dir().join(format!("executor_test_{name}"));
         std::fs::create_dir_all(&temp_dir).unwrap();
         Tier::new(name.to_string(), temp_dir, 1, None, None).unwrap()
