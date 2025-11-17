@@ -19,7 +19,6 @@ pub fn calculate_checksum_native(path: &Path) -> io::Result<String> {
     // Tell kernel to drop cached pages after reading (prevents huge page cache buildup)
     #[cfg(target_os = "linux")]
     {
-        use nix::libc;
         use std::os::unix::io::AsRawFd;
         let fd = file.as_raw_fd();
         unsafe {
