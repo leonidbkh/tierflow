@@ -1429,6 +1429,7 @@ dependencies = [
  "fs2",
  "hostname",
  "lazy-regex",
+ "libc",
  "nix 0.29.0",
  "regex",
  "reqwest",
