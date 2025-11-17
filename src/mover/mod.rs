@@ -160,12 +160,37 @@ impl Mover for RsyncMover {
             destination.display()
         );
 
-        // Execute rsync with stdout/stderr discarded to prevent memory buildup
-        // from --progress output (especially important for large files)
+        // Execute rsync and parse progress output to log at 10% intervals
+        use std::io::{BufRead, BufReader};
         use std::process::Stdio;
-        cmd.stdout(Stdio::null()).stderr(Stdio::null());
 
-        let status = cmd.status()?;
+        let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+
+        // Parse progress output line-by-line (constant memory ~8KB)
+        if let Some(stdout) = child.stdout.take() {
+            let reader = BufReader::new(stdout);
+            let filename = destination
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file");
+
+            let mut last_logged_percent = 0u8;
+            for line in reader.lines().map_while(Result::ok) {
+                // Parse rsync progress: "  1,234,567  45%  123.45MB/s    0:01:23"
+                if let Some(percent_str) = line.split_whitespace().find(|s| s.ends_with('%'))
+                    && let Ok(percent) = percent_str.trim_end_matches('%').parse::<u8>()
+                {
+                    // Log every 10%
+                    let milestone = (percent / 10) * 10;
+                    if milestone > last_logged_percent && milestone > 0 {
+                        tracing::info!("Copying {}: {}% complete", filename, milestone);
+                        last_logged_percent = milestone;
+                    }
+                }
+            }
+        }
+
+        let status = child.wait()?;
 
         if !status.success() {
             tracing::error!(
