@@ -128,8 +128,7 @@ impl SmartFileChecker {
             let available = Command::new("lsof")
                 .arg("-v")
                 .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+                .is_ok_and(|o| o.status.success());
 
             self.use_lsof
                 .store(available, std::sync::atomic::Ordering::Relaxed);

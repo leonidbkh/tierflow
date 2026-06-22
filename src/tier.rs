@@ -1,5 +1,5 @@
 use crate::disk::{DiskOperations, RealDisk};
-use crate::file::FileInfo;
+use crate::file::{FileInfo, is_internal_artifact_path};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -200,9 +200,13 @@ impl Tier {
             })
             .filter(|e| e.file_type().is_file())
             .filter(|e| {
-                // Skip lock file
-                if let Some(name) = e.file_name().to_str() {
-                    name != ".tierflow.lock"
+                if is_internal_artifact_path(e.path()) {
+                    tracing::debug!(
+                        "Skipping internal tierflow artifact in tier '{}': {}",
+                        self.name,
+                        e.path().display()
+                    );
+                    false
                 } else {
                     true
                 }
@@ -391,6 +395,40 @@ mod tests {
         let files = tier.get_all_files();
 
         assert_eq!(files.len(), 3, "Should find 3 files");
+
+        fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_tier_get_all_files_skips_internal_artifacts() {
+        let temp_dir = env::temp_dir().join("test_tier_internal_artifacts");
+        fs::remove_dir_all(&temp_dir).ok();
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        fs::write(temp_dir.join("movie.mkv"), b"content").unwrap();
+        fs::write(temp_dir.join("backup-note.txt"), b"content").unwrap();
+        fs::write(temp_dir.join("movie.mkv.partial"), b"partial").unwrap();
+        fs::write(temp_dir.join("movie.mkv.backup-1790000000"), b"backup").unwrap();
+        fs::write(temp_dir.join(".tierflow.lock"), b"lock").unwrap();
+        fs::write(
+            temp_dir.join(".tierflow-remove-check-123-1790000000-movie.mkv"),
+            b"probe",
+        )
+        .unwrap();
+
+        let tier = Tier::new("test".to_string(), temp_dir.clone(), 1, None, None).unwrap();
+        let mut file_names: Vec<_> = tier
+            .get_all_files()
+            .into_iter()
+            .filter_map(|file| {
+                file.path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .collect();
+        file_names.sort();
+
+        assert_eq!(file_names, vec!["backup-note.txt", "movie.mkv"]);
 
         fs::remove_dir_all(temp_dir).ok();
     }

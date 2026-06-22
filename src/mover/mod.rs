@@ -1,7 +1,7 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::Path;
-use std::process::Command;
+use std::process::{self, Command};
 
 /// Trait for moving files between tiers
 /// Different implementations can use rsync, cp, mv, etc.
@@ -57,6 +57,10 @@ impl Mover for RsyncMover {
             ));
         }
 
+        ensure_source_parent_writable(source)?;
+
+        let mut backup_path = None;
+
         // Check if destination already exists
         if destination.exists() {
             let source_metadata = fs::metadata(source)?;
@@ -78,10 +82,9 @@ impl Mover for RsyncMover {
             // Files are different - backup destination with timestamp
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+                .map_or(0, |d| d.as_secs());
 
-            let backup_path = destination.with_extension(format!(
+            let candidate_backup_path = destination.with_extension(format!(
                 "{}.backup-{}",
                 destination
                     .extension()
@@ -93,10 +96,11 @@ impl Mover for RsyncMover {
             tracing::warn!(
                 "Destination already exists but differs: {} -> Backing up to: {}",
                 destination.display(),
-                backup_path.display()
+                candidate_backup_path.display()
             );
 
-            fs::rename(destination, backup_path)?;
+            fs::rename(destination, &candidate_backup_path)?;
+            backup_path = Some(candidate_backup_path);
         }
 
         // Ensure destination directory exists
@@ -116,6 +120,8 @@ impl Mover for RsyncMover {
 
         let mut cmd = Command::new("rsync");
 
+        cmd.arg("--times");
+
         for arg in &self.extra_args {
             cmd.arg(arg);
         }
@@ -131,7 +137,14 @@ impl Mover for RsyncMover {
 
         // Execute rsync - use status() instead of output() to avoid buffering
         // large amounts of stdout/stderr in memory for big files
-        let status = cmd.status()?;
+        let status = match cmd.status() {
+            Ok(status) => status,
+            Err(err) => {
+                remove_file_if_exists(&temp_destination);
+                restore_destination_backup(destination, backup_path.as_deref());
+                return Err(err);
+            }
+        };
 
         if !status.success() {
             tracing::error!(
@@ -139,6 +152,9 @@ impl Mover for RsyncMover {
                 source.display(),
                 destination.display()
             );
+
+            remove_file_if_exists(&temp_destination);
+            restore_destination_backup(destination, backup_path.as_deref());
 
             return Err(io::Error::other(format!(
                 "rsync failed with exit code {:?}",
@@ -148,6 +164,7 @@ impl Mover for RsyncMover {
 
         // Step 2: Verify the temporary file was copied correctly
         if !temp_destination.exists() {
+            restore_destination_backup(destination, backup_path.as_deref());
             return Err(io::Error::other(format!(
                 "Temporary destination file was not created: {}",
                 temp_destination.display()
@@ -160,7 +177,8 @@ impl Mover for RsyncMover {
 
         if source_metadata.len() != dest_metadata.len() {
             // Try to clean up the incomplete copy
-            let _ = fs::remove_file(&temp_destination);
+            remove_file_if_exists(&temp_destination);
+            restore_destination_backup(destination, backup_path.as_deref());
             return Err(io::Error::other(format!(
                 "File size mismatch after copy: source={} bytes, dest={} bytes",
                 source_metadata.len(),
@@ -183,7 +201,8 @@ impl Mover for RsyncMover {
                 source_metadata_after.modified().ok()
             );
             // Clean up the stale temporary copy since source was modified
-            let _ = fs::remove_file(&temp_destination);
+            remove_file_if_exists(&temp_destination);
+            restore_destination_backup(destination, backup_path.as_deref());
             return Err(io::Error::other(format!(
                 "Source file was modified during copy. Stale copy removed: {}",
                 temp_destination.display()
@@ -197,7 +216,11 @@ impl Mover for RsyncMover {
             temp_destination.display(),
             destination.display()
         );
-        fs::rename(&temp_destination, destination)?;
+        if let Err(err) = fs::rename(&temp_destination, destination) {
+            remove_file_if_exists(&temp_destination);
+            restore_destination_backup(destination, backup_path.as_deref());
+            return Err(err);
+        }
 
         // Step 6: Only now, after atomic rename, remove the source
         fs::remove_file(source)?;
@@ -245,6 +268,88 @@ impl Mover for RsyncMover {
         );
 
         Ok(())
+    }
+}
+
+fn ensure_source_parent_writable(source: &Path) -> io::Result<()> {
+    let parent = source.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Source file has no parent directory: {}", source.display()),
+        )
+    })?;
+
+    let file_name = source.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Source file has no file name: {}", source.display()),
+        )
+    })?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let probe_path = parent.join(format!(
+        ".tierflow-remove-check-{}-{}-{}",
+        process::id(),
+        timestamp,
+        file_name.to_string_lossy()
+    ));
+
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+        .map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!(
+                    "Cannot move {}: source parent directory is not writable: {}",
+                    source.display(),
+                    err
+                ),
+            )
+        })?;
+
+    fs::remove_file(&probe_path).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!(
+                "Cannot move {}: failed to remove source permission probe {}: {}",
+                source.display(),
+                probe_path.display(),
+                err
+            ),
+        )
+    })
+}
+
+fn remove_file_if_exists(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => {
+            tracing::warn!("Failed to remove {}: {}", path.display(), err);
+        }
+    }
+}
+
+fn restore_destination_backup(destination: &Path, backup_path: Option<&Path>) {
+    let Some(backup_path) = backup_path else {
+        return;
+    };
+
+    if destination.exists() || !backup_path.exists() {
+        return;
+    }
+
+    if let Err(err) = fs::rename(backup_path, destination) {
+        tracing::error!(
+            "Failed to restore destination backup {} -> {}: {}",
+            backup_path.display(),
+            destination.display(),
+            err
+        );
     }
 }
 
@@ -313,6 +418,47 @@ mod tests {
     fn test_rsync_mover_default() {
         let mover = RsyncMover::default();
         assert!(mover.extra_args.is_empty());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_rsync_mover_rejects_unwritable_source_parent_before_destination_changes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("source");
+        let dest_dir = temp_dir.path().join("dest");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        let source_path = source_dir.join("movie.mkv");
+        let dest_path = dest_dir.join("movie.mkv");
+        fs::write(&source_path, "new content").unwrap();
+        fs::write(&dest_path, "old content").unwrap();
+
+        fs::set_permissions(&source_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let preflight_result = ensure_source_parent_writable(&source_path);
+        if preflight_result.is_ok() {
+            fs::set_permissions(&source_dir, fs::Permissions::from_mode(0o755)).unwrap();
+            return;
+        }
+
+        let mover = RsyncMover::new();
+        let result = mover.move_file(&source_path, &dest_path);
+
+        fs::set_permissions(&source_dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(result.is_err());
+        assert!(source_path.exists(), "Source should remain untouched");
+        assert_eq!(fs::read_to_string(&dest_path).unwrap(), "old content");
+
+        let backup_files: Vec<_> = fs::read_dir(&dest_dir)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".backup-"))
+            .collect();
+        assert!(backup_files.is_empty(), "No backup should be created");
     }
 
     // Integration test - only run if rsync is available
@@ -413,6 +559,31 @@ mod tests {
         // Check new content
         let content = fs::read_to_string(&dest_path).unwrap();
         assert_eq!(content, "new content");
+    }
+
+    #[test]
+    #[ignore = "requires rsync, run with --ignored"]
+    fn test_rsync_mover_removes_partial_on_rsync_failure() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_path = temp_dir.path().join("source.txt");
+        let dest_path = temp_dir.path().join("dest.txt");
+        let partial_path = dest_path.with_extension("txt.partial");
+
+        fs::write(&source_path, "new content").unwrap();
+        fs::write(&partial_path, "stale partial").unwrap();
+
+        let mover = RsyncMover::with_args(vec!["--definitely-not-a-real-rsync-option".into()]);
+        let result = mover.move_file(&source_path, &dest_path);
+
+        assert!(result.is_err());
+        assert!(
+            source_path.exists(),
+            "Source should remain after failed copy"
+        );
+        assert!(
+            !partial_path.exists(),
+            "Stale partial should be removed after failed copy"
+        );
     }
 
     #[test]
