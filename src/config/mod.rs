@@ -1,9 +1,14 @@
+mod blocker;
 mod condition;
 mod error;
 mod strategy;
 mod tautulli;
 mod tier;
 
+pub use blocker::{
+    BlockerErrorPolicyConfig, BlockerProviderConfig, BlockersConfig, PathMappingConfig,
+    TdarrBlockerConfig,
+};
 pub use condition::ConditionConfig;
 pub use error::{ConfigError, Result};
 pub use strategy::{PlacementStrategyConfig, StrategyAction};
@@ -48,6 +53,8 @@ pub struct BalancingConfig {
     pub strategies: Vec<PlacementStrategyConfig>,
     #[serde(default)]
     pub mover: MoverConfig,
+    #[serde(default)]
+    pub blockers: Option<BlockersConfig>,
     pub tautulli: Option<TautulliConfig>,
 }
 
@@ -250,6 +257,7 @@ strategies:
                 action: StrategyAction::Evaluate,
             }],
             mover: MoverConfig::default(),
+            blockers: None,
             tautulli: None,
         };
 
@@ -270,6 +278,7 @@ strategies:
             }],
             strategies: vec![],
             mover: MoverConfig::default(),
+            blockers: None,
             tautulli: None,
         };
 
@@ -306,6 +315,7 @@ strategies:
                 action: StrategyAction::Evaluate,
             }],
             mover: MoverConfig::default(),
+            blockers: None,
             tautulli: None,
         };
 
@@ -346,6 +356,7 @@ strategies:
                 },
             ],
             mover: MoverConfig::default(),
+            blockers: None,
             tautulli: None,
         };
 
@@ -376,6 +387,7 @@ strategies:
                 action: StrategyAction::Evaluate,
             }],
             mover: MoverConfig::default(),
+            blockers: None,
             tautulli: None,
         };
 
@@ -428,6 +440,7 @@ strategies:
                 },
             ],
             mover: MoverConfig::default(),
+            blockers: None,
             tautulli: None,
         };
 

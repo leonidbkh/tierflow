@@ -1,3 +1,4 @@
+use crate::move_blocker::{BlockDecision, MoveBlocker, snapshot_or_fail_closed};
 use crate::{BalancingPlan, FileChecker, Mover, PlacementDecision, Tier};
 
 #[cfg(test)]
@@ -11,7 +12,18 @@ pub struct ExecutionResult {
     pub files_moved: usize,
     pub bytes_moved: u64,
     pub files_stayed: usize,
+    pub files_blocked: usize,
+    pub blocked: Vec<ExecutionBlocked>,
     pub errors: Vec<ExecutionError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionBlocked {
+    pub file: PathBuf,
+    pub from_tier: String,
+    pub to_tier: String,
+    pub provider: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,18 +44,32 @@ impl Executor {
     /// * `mover` - Реализация Mover trait (`DryRunMover`, `RsyncMover`, и т.д.)
     /// * `tiers` - Список tier'ов для построения полных путей
     /// * `file_checker` - Implementation of `FileChecker` trait (use `NoOpFileChecker` to skip checks)
+    /// * `move_blocker` - External blockers that can prevent moves (Tdarr queues, etc.)
     pub fn execute_plan(
         plan: &BalancingPlan,
         mover: &dyn Mover,
         tiers: &[Tier],
         file_checker: &dyn FileChecker,
+        move_blocker: &dyn MoveBlocker,
     ) -> ExecutionResult {
         let tier_map: HashMap<String, &Tier> = tiers.iter().map(|t| (t.name.clone(), t)).collect();
+        let move_candidates: Vec<PathBuf> = plan
+            .decisions
+            .iter()
+            .filter_map(|decision| match decision {
+                PlacementDecision::Promote { file, .. }
+                | PlacementDecision::Demote { file, .. } => Some(file.path.clone()),
+                PlacementDecision::Stay { .. } => None,
+            })
+            .collect();
+        let blocker_snapshot = snapshot_or_fail_closed(move_blocker, &move_candidates);
 
         let mut result = ExecutionResult {
             files_moved: 0,
             bytes_moved: 0,
             files_stayed: 0,
+            files_blocked: 0,
+            blocked: Vec::new(),
             errors: Vec::new(),
         };
 
@@ -80,6 +106,24 @@ impl Executor {
                         from_tier,
                         to_tier
                     );
+
+                    if let BlockDecision::Blocked(reason) = blocker_snapshot.check(&file.path) {
+                        tracing::warn!(
+                            "Skipping blocked file: {} (provider: {}, reason: {})",
+                            file.path.display(),
+                            reason.provider,
+                            reason.reason
+                        );
+                        result.files_blocked += 1;
+                        result.blocked.push(ExecutionBlocked {
+                            file: file.path.clone(),
+                            from_tier: from_tier.clone(),
+                            to_tier: to_tier.clone(),
+                            provider: reason.provider,
+                            reason: reason.reason,
+                        });
+                        continue;
+                    }
 
                     // Check if file is in use before attempting to move
                     match file_checker.is_file_in_use(&file.path) {
@@ -131,9 +175,10 @@ impl Executor {
         }
 
         tracing::info!(
-            "Execution complete: {} moved, {} stayed, {} errors",
+            "Execution complete: {} moved, {} stayed, {} blocked, {} errors",
             result.files_moved,
             result.files_stayed,
+            result.files_blocked,
             result.errors.len()
         );
 
@@ -192,6 +237,7 @@ impl Executor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::move_blocker::{NoOpMoveBlocker, StaticMoveBlocker};
     use crate::{DryRunMover, FileInfo, PlacementDecision};
     use std::collections::HashMap;
     use std::time::SystemTime;
@@ -225,11 +271,14 @@ mod tests {
         let tiers = vec![];
 
         let checker = NoOpFileChecker;
-        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
+        let blocker = NoOpMoveBlocker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker, &blocker);
 
         assert_eq!(result.files_moved, 0);
         assert_eq!(result.files_stayed, 0);
         assert_eq!(result.bytes_moved, 0);
+        assert_eq!(result.files_blocked, 0);
+        assert!(result.blocked.is_empty());
         assert!(result.errors.is_empty());
     }
 
@@ -260,11 +309,13 @@ mod tests {
         let tiers = vec![cache];
 
         let checker = NoOpFileChecker;
-        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
+        let blocker = NoOpMoveBlocker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker, &blocker);
 
         assert_eq!(result.files_moved, 0);
         assert_eq!(result.files_stayed, 2);
         assert_eq!(result.bytes_moved, 0);
+        assert_eq!(result.files_blocked, 0);
         assert!(result.errors.is_empty());
     }
 
@@ -289,11 +340,13 @@ mod tests {
         let tiers = vec![cache, storage];
 
         let checker = NoOpFileChecker;
-        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
+        let blocker = NoOpMoveBlocker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker, &blocker);
 
         assert_eq!(result.files_moved, 1);
         assert_eq!(result.files_stayed, 0);
         assert_eq!(result.bytes_moved, 5000);
+        assert_eq!(result.files_blocked, 0);
         assert!(result.errors.is_empty());
     }
 
@@ -318,11 +371,13 @@ mod tests {
         let tiers = vec![cache, storage];
 
         let checker = NoOpFileChecker;
-        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
+        let blocker = NoOpMoveBlocker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker, &blocker);
 
         assert_eq!(result.files_moved, 1);
         assert_eq!(result.files_stayed, 0);
         assert_eq!(result.bytes_moved, 3000);
+        assert_eq!(result.files_blocked, 0);
         assert!(result.errors.is_empty());
     }
 
@@ -364,11 +419,49 @@ mod tests {
         let tiers = vec![cache, storage];
 
         let checker = NoOpFileChecker;
-        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
+        let blocker = NoOpMoveBlocker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker, &blocker);
 
         assert_eq!(result.files_moved, 2);
         assert_eq!(result.files_stayed, 1);
         assert_eq!(result.bytes_moved, 5000); // 2000 + 3000
+        assert_eq!(result.files_blocked, 0);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_execute_skips_blocked_move() {
+        let cache = create_test_tier("cache");
+        let storage = create_test_tier("storage");
+        let file = create_test_file_in_tier(&cache, "queued.mkv", 2000);
+        let blocked_path = file.path.clone();
+
+        let plan = BalancingPlan {
+            decisions: vec![PlacementDecision::Demote {
+                file: std::sync::Arc::new(file),
+                from_tier: "cache".to_string(),
+                to_tier: "storage".to_string(),
+                strategy: "old".to_string(),
+                priority: 10,
+            }],
+            projected_tier_usage: HashMap::new(),
+            warnings: vec![],
+        };
+        let mover = DryRunMover;
+        let tiers = vec![cache, storage];
+
+        let checker = NoOpFileChecker;
+        let blocker = StaticMoveBlocker::new(
+            vec![blocked_path.clone()],
+            "tdarr".to_string(),
+            "queued for Tdarr transcode".to_string(),
+        );
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker, &blocker);
+
+        assert_eq!(result.files_moved, 0);
+        assert_eq!(result.files_blocked, 1);
+        assert_eq!(result.blocked[0].file, blocked_path);
+        assert_eq!(result.blocked[0].provider, "tdarr");
         assert!(result.errors.is_empty());
     }
 
@@ -405,10 +498,12 @@ mod tests {
         let tiers = vec![cache, storage];
 
         let checker = NoOpFileChecker;
-        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker);
+        let blocker = NoOpMoveBlocker;
+        let result = Executor::execute_plan(&plan, &mover, &tiers, &checker, &blocker);
 
         assert_eq!(result.files_moved, 1);
         assert_eq!(result.bytes_moved, 1000);
+        assert_eq!(result.files_blocked, 0);
         assert!(result.errors.is_empty());
     }
 }

@@ -83,6 +83,7 @@ fn run_rebalance(
 
     // Extract config fields before consuming config
     let tautulli_config = config.tautulli.clone();
+    let blockers_config = config.blockers.clone();
     let mover_config = config.mover.clone();
 
     // Convert configuration to runtime objects
@@ -108,6 +109,14 @@ fn run_rebalance(
             ""
         }
     );
+    if let Some(blockers) = &blockers_config
+        && !blockers.providers.is_empty()
+    {
+        tracing::info!(
+            "Move blockers enabled: {} provider(s)",
+            blockers.providers.len()
+        );
+    }
 
     // Acquire locks on all tiers before proceeding
     let _lock_guard = match TierLockGuard::try_lock_tiers(&tiers) {
@@ -151,7 +160,14 @@ fn run_rebalance(
     // Use factory functions for consistent initialization
     let mover = factory::build_mover(Some(&mover_config), dry_run);
     let file_checker = factory::build_file_checker();
-    let result = Executor::execute_plan(&plan, mover.as_ref(), &tiers, file_checker.as_ref());
+    let move_blocker = factory::build_move_blocker(blockers_config.as_ref())?;
+    let result = Executor::execute_plan(
+        &plan,
+        mover.as_ref(),
+        &tiers,
+        file_checker.as_ref(),
+        move_blocker.as_ref(),
+    );
 
     // Output result to stdout based on format
     match format {
@@ -159,8 +175,16 @@ fn run_rebalance(
             let output = serde_json::json!({
                 "files_moved": result.files_moved,
                 "files_stayed": result.files_stayed,
+                "files_blocked": result.files_blocked,
                 "bytes_moved": result.bytes_moved,
                 "dry_run": dry_run,
+                "blocked": result.blocked.iter().map(|e| serde_json::json!({
+                    "file": e.file.display().to_string(),
+                    "from_tier": &e.from_tier,
+                    "to_tier": &e.to_tier,
+                    "provider": &e.provider,
+                    "reason": &e.reason,
+                })).collect::<Vec<_>>(),
                 "errors": result.errors.iter().map(|e| serde_json::json!({
                     "file": e.file.display().to_string(),
                     "from_tier": &e.from_tier,
@@ -174,8 +198,16 @@ fn run_rebalance(
             let output = serde_json::json!({
                 "files_moved": result.files_moved,
                 "files_stayed": result.files_stayed,
+                "files_blocked": result.files_blocked,
                 "bytes_moved": result.bytes_moved,
                 "dry_run": dry_run,
+                "blocked": result.blocked.iter().map(|e| serde_json::json!({
+                    "file": e.file.display().to_string(),
+                    "from_tier": &e.from_tier,
+                    "to_tier": &e.to_tier,
+                    "provider": &e.provider,
+                    "reason": &e.reason,
+                })).collect::<Vec<_>>(),
                 "errors": result.errors.iter().map(|e| serde_json::json!({
                     "file": e.file.display().to_string(),
                     "from_tier": &e.from_tier,
@@ -193,11 +225,23 @@ fn run_rebalance(
             eprintln!("\nExecution complete:");
             eprintln!("  Files moved: {}", result.files_moved);
             eprintln!("  Files stayed: {}", result.files_stayed);
+            eprintln!("  Files blocked: {}", result.files_blocked);
             eprintln!(
                 "  Bytes moved: {} ({:.2} GB)",
                 result.bytes_moved,
                 result.bytes_moved as f64 / 1_000_000_000.0
             );
+
+            if !result.blocked.is_empty() {
+                eprintln!("\nBlocked ({}):", result.blocked.len());
+                for blocked in &result.blocked {
+                    eprintln!(
+                        "  {} -> {}: {} ({})",
+                        blocked.from_tier, blocked.to_tier, blocked.reason, blocked.provider
+                    );
+                    eprintln!("    File: {}", blocked.file.display());
+                }
+            }
 
             if !result.errors.is_empty() {
                 eprintln!("\nErrors ({}):", result.errors.len());
