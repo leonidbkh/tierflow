@@ -11,10 +11,12 @@ pub mod factory;
 pub mod file;
 pub mod file_checker;
 pub mod lock;
+pub mod move_blocker;
 pub mod mover;
 pub mod stats;
 pub mod strategy;
 pub mod tautulli;
+pub mod tdarr;
 pub mod tier;
 
 pub use balancer::{Balancer, BalancingPlan, PlacementDecision, PlanWarning, TierUsageProjection};
@@ -25,17 +27,22 @@ pub use conditions::{
     PathPrefixCondition, PrefixMode,
 };
 pub use config::{
-    BalancingConfig, ConditionConfig, ConfigError, MoverConfig, MoverType, PlacementStrategyConfig,
-    StrategyAction, TautulliConfig, TierConfig,
+    BalancingConfig, BlockerErrorPolicyConfig, BlockerProviderConfig, BlockersConfig,
+    ConditionConfig, ConfigError, MoverConfig, MoverType, PathMappingConfig,
+    PlacementStrategyConfig, StrategyAction, TautulliConfig, TdarrBlockerConfig, TierConfig,
 };
 pub use disk::{DiskOperations, RealDisk};
 pub use error::{AppError, Result};
-pub use executor::{ExecutionError, ExecutionResult, Executor};
+pub use executor::{ExecutionBlocked, ExecutionError, ExecutionResult, Executor};
 pub use file::FileInfo;
 pub use file_checker::{
     FileChecker, FileLockChecker, LsofFileChecker, NoOpFileChecker, SmartFileChecker,
 };
 pub use lock::TierLockGuard;
+pub use move_blocker::{
+    BlockDecision, BlockReason, BlockerErrorPolicy, CompositeMoveBlocker, MoveBlocker,
+    MoveBlockerSnapshot, NoOpMoveBlocker, StaticMoveBlocker,
+};
 pub use mover::{DryRunMover, Mover, RsyncMover};
 pub use stats::{FileStats, GlobalStats};
 pub use strategy::PlacementStrategy;
@@ -43,4 +50,5 @@ pub use tautulli::{
     EpisodeInfo, HistoryItem, ShowProgress, TautulliClient, TautulliStats, build_progress,
     normalize_show_name, parse_episode,
 };
+pub use tdarr::TdarrMoveBlocker;
 pub use tier::Tier;

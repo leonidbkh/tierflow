@@ -25,6 +25,29 @@ mover:
 # Multi-user support: Windows merge across all active users
 # Cross-season support: Windows can span season boundaries automatically
 
+# Move blockers (optional) - prevent moves while external apps need a file in place
+# The Tdarr blocker blocks files that are actively processed or queued in Tdarr.
+# blockers:
+#   on_error: fail_closed  # fail_closed blocks moves if Tdarr cannot be queried
+#   providers:
+#     - type: tdarr
+#       url: "http://192.168.51.10:8265"
+#       page_size: 500
+#       block_active_workers: true
+#       block_staged: true
+#       block_queued_transcode: true
+#       block_queued_healthcheck: false
+#       path_mappings:
+#         # Map Tdarr container paths back to every tier path Tierflow can move from.
+#         - host_prefix: /mnt/tier1-nvme/media/movies-lib
+#           app_prefix: /media/movies
+#         - host_prefix: /mnt/tier2-storage/media/movies-lib
+#           app_prefix: /media/movies
+#         - host_prefix: /mnt/tier1-nvme/media/series-lib
+#           app_prefix: /media/tv
+#         - host_prefix: /mnt/tier2-storage/media/series-lib
+#           app_prefix: /media/tv
+
 # Tiers define storage locations with priorities
 # Lower priority number = faster/more expensive storage
 tiers:

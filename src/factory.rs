@@ -2,7 +2,11 @@ use crate::conditions::{
     ActiveWindowCondition, AgeCondition, AlwaysTrueCondition, FileExtensionCondition,
     FileSizeCondition, FilenameContainsCondition, PathPrefixCondition,
 };
-use crate::config::{ConditionConfig, MoverConfig, MoverType, PlacementStrategyConfig};
+use crate::config::{
+    BlockersConfig, ConditionConfig, MoverConfig, MoverType, PlacementStrategyConfig,
+};
+use crate::error::Result;
+use crate::move_blocker::{self, CompositeMoveBlocker, MoveBlocker, NoOpMoveBlocker};
 use crate::{
     Condition, DryRunMover, FileChecker, Mover, PlacementStrategy, RsyncMover, SmartFileChecker,
 };
@@ -93,4 +97,29 @@ pub fn build_mover(config: Option<&MoverConfig>, dry_run: bool) -> Box<dyn Mover
 /// Create a file checker with default implementation
 pub fn build_file_checker() -> Box<dyn FileChecker> {
     Box::new(SmartFileChecker::new())
+}
+
+/// Create a move blocker from configuration.
+pub fn build_move_blocker(config: Option<&BlockersConfig>) -> Result<Box<dyn MoveBlocker>> {
+    let Some(config) = config else {
+        tracing::info!("No move blockers configured");
+        return Ok(Box::new(NoOpMoveBlocker));
+    };
+
+    if config.providers.is_empty() {
+        tracing::info!("Move blockers section is empty");
+        return Ok(Box::new(NoOpMoveBlocker));
+    }
+
+    let providers = config
+        .providers
+        .clone()
+        .into_iter()
+        .map(move_blocker::build_provider)
+        .collect::<Result<Vec<_>>>()?;
+    let on_error = move_blocker::build_blocker_error_policy(&config.on_error);
+
+    tracing::info!("Configured {} move blocker provider(s)", providers.len());
+
+    Ok(Box::new(CompositeMoveBlocker::new(providers, on_error)))
 }
