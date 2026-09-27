@@ -4,7 +4,6 @@ use crate::{BalancingPlan, FileChecker, Mover, PlacementDecision, Tier};
 #[cfg(test)]
 use crate::NoOpFileChecker;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,11 +220,6 @@ impl Executor {
         })?;
 
         let destination_path = to_tier.path.join(relative_path);
-
-        // Создаём директории если нужно
-        if let Some(parent) = destination_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
 
         // Выполняем перемещение через Mover trait
         mover.move_file(file_path, &destination_path)?;
@@ -466,12 +460,16 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_with_nested_directories() {
+    fn test_dry_run_with_nested_directories_does_not_create_destination() {
         let cache = create_test_tier("cache");
         let storage = create_test_tier("storage");
 
-        // Создаём файл в поддиректории
-        let subdir = cache.path.join("tv_shows/show1");
+        let relative_parent = format!("dry-run-{}/tv_shows/show1", std::process::id());
+        let destination_parent = storage.path.join(&relative_parent);
+        std::fs::remove_dir_all(storage.path.join(format!("dry-run-{}", std::process::id()))).ok();
+
+        // Create a source file in a nested directory that does not exist on the destination tier.
+        let subdir = cache.path.join(&relative_parent);
         std::fs::create_dir_all(&subdir).unwrap();
         let file_path = subdir.join("episode.mkv");
         std::fs::write(&file_path, vec![0u8; 1000]).unwrap();
@@ -505,5 +503,9 @@ mod tests {
         assert_eq!(result.bytes_moved, 1000);
         assert_eq!(result.files_blocked, 0);
         assert!(result.errors.is_empty());
+        assert!(
+            !destination_parent.exists(),
+            "dry-run must not create destination directories"
+        );
     }
 }

@@ -8,7 +8,8 @@ use crate::config::{
 use crate::error::Result;
 use crate::move_blocker::{self, CompositeMoveBlocker, MoveBlocker, NoOpMoveBlocker};
 use crate::{
-    Condition, DryRunMover, FileChecker, Mover, PlacementStrategy, RsyncMover, SmartFileChecker,
+    Condition, DryRunMover, FileChecker, Mover, NoOpFileChecker, PlacementStrategy, RsyncMover,
+    SmartFileChecker,
 };
 
 pub fn build_strategy(config: PlacementStrategyConfig) -> PlacementStrategy {
@@ -94,9 +95,13 @@ pub fn build_mover(config: Option<&MoverConfig>, dry_run: bool) -> Box<dyn Mover
     }
 }
 
-/// Create a file checker with default implementation
-pub fn build_file_checker() -> Box<dyn FileChecker> {
-    Box::new(SmartFileChecker::new())
+/// Create a file checker suitable for the selected execution mode.
+pub fn build_file_checker(dry_run: bool) -> Box<dyn FileChecker> {
+    if dry_run {
+        Box::new(NoOpFileChecker)
+    } else {
+        Box::new(SmartFileChecker::new())
+    }
 }
 
 /// Create a move blocker from configuration.
