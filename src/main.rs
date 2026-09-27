@@ -159,7 +159,7 @@ fn run_rebalance(
 
     // Use factory functions for consistent initialization
     let mover = factory::build_mover(Some(&mover_config), dry_run);
-    let file_checker = factory::build_file_checker();
+    let file_checker = factory::build_file_checker(dry_run);
     let move_blocker = factory::build_move_blocker(blockers_config.as_ref())?;
     let result = Executor::execute_plan(
         &plan,
