@@ -71,8 +71,8 @@ mod tests {
         assert_eq!(state.tier_free_space.len(), 2);
         assert!(state.tier_free_space.contains_key("cache"));
         assert!(state.tier_free_space.contains_key("storage"));
-        assert!(state.decisions.is_empty());
-        assert!(state.warnings.is_empty());
+        assert_eq!(state.decisions, [] as [PlacementDecision; 0]);
+        assert_eq!(state.warnings, [] as [PlanWarning; 0]);
     }
 
     #[test]

@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn test_rsync_mover_new() {
         let mover = RsyncMover::new();
-        assert!(mover.extra_args.is_empty());
+        assert_eq!(mover.extra_args, [] as [String; 0]);
     }
 
     #[test]
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn test_rsync_mover_default() {
         let mover = RsyncMover::default();
-        assert!(mover.extra_args.is_empty());
+        assert_eq!(mover.extra_args, [] as [String; 0]);
     }
 
     #[test]
