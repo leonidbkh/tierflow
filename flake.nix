@@ -13,7 +13,7 @@
 
         tierflow = pkgs.rustPlatform.buildRustPackage {
           pname = "tierflow";
-          version = "0.1.5";
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
 
           src = ./.;
 

@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 /// Trait for moving files between tiers
@@ -84,14 +85,17 @@ impl Mover for RsyncMover {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs());
 
-            let candidate_backup_path = destination.with_extension(format!(
-                "{}.backup-{}",
-                destination
-                    .extension()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-                timestamp
-            ));
+            let candidate_backup_path = bounded_sidecar_path(
+                destination,
+                &format!(
+                    "{}.backup-{}",
+                    destination
+                        .extension()
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                    timestamp
+                ),
+            );
 
             tracing::warn!(
                 "Destination already exists but differs: {} -> Backing up to: {}",
@@ -110,13 +114,16 @@ impl Mover for RsyncMover {
 
         // Step 1: Copy file to temporary name (atomic rename pattern)
         // This prevents other processes (Tdarr, Plex, etc.) from accessing incomplete files
-        let temp_destination = destination.with_extension(format!(
-            "{}.partial",
-            destination
-                .extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-        ));
+        let temp_destination = bounded_sidecar_path(
+            destination,
+            &format!(
+                "{}.partial",
+                destination
+                    .extension()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            ),
+        );
 
         let mut cmd = Command::new("rsync");
 
@@ -271,6 +278,23 @@ impl Mover for RsyncMover {
     }
 }
 
+// Sidecars must not push a valid original filename beyond NAME_MAX.
+fn bounded_sidecar_path(path: &Path, extension: &str) -> PathBuf {
+    let candidate = path.with_extension(extension);
+    if candidate
+        .file_name()
+        .is_some_and(|n| n.as_encoded_bytes().len() <= 255)
+    {
+        return candidate;
+    }
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hash);
+    extension.hash(&mut hash);
+    // Keep the marker without retaining a potentially long original extension.
+    let marker = extension.rsplit('.').next().unwrap_or("partial");
+    path.with_file_name(format!(".tierflow-{:016x}.{}", hash.finish(), marker))
+}
+
 fn ensure_source_parent_writable(source: &Path) -> io::Result<()> {
     let parent = source.parent().ok_or_else(|| {
         io::Error::new(
@@ -279,7 +303,7 @@ fn ensure_source_parent_writable(source: &Path) -> io::Result<()> {
         )
     })?;
 
-    let file_name = source.file_name().ok_or_else(|| {
+    source.file_name().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("Source file has no file name: {}", source.display()),
@@ -290,10 +314,9 @@ fn ensure_source_parent_writable(source: &Path) -> io::Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let probe_path = parent.join(format!(
-        ".tierflow-remove-check-{}-{}-{}",
+        ".tierflow-remove-check-{}-{}",
         process::id(),
-        timestamp,
-        file_name.to_string_lossy()
+        timestamp
     ));
 
     OpenOptions::new()
@@ -370,6 +393,37 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_rsync_mover_long_names_and_existing_destination() {
+        for name in ["a".repeat(255), format!("{}.mkv", "я".repeat(125))] {
+            for existing in [false, true] {
+                let temp = TempDir::new().unwrap();
+                let src_dir = temp.path().join("src");
+                let dst_dir = temp.path().join("dst");
+                fs::create_dir_all(&src_dir).unwrap();
+                fs::create_dir_all(&dst_dir).unwrap();
+                let src = src_dir.join(&name);
+                let dst = dst_dir.join(&name);
+                fs::write(&src, b"new contents").unwrap();
+                if existing {
+                    fs::write(&dst, b"old").unwrap();
+                }
+                RsyncMover::new().move_file(&src, &dst).unwrap();
+                assert!(!src.exists());
+                assert_eq!(fs::read(&dst).unwrap(), b"new contents");
+                let others: Vec<_> = fs::read_dir(&dst_dir)
+                    .unwrap()
+                    .map(|e| e.unwrap().path())
+                    .filter(|p| p != &dst)
+                    .collect();
+                assert_eq!(others.len(), usize::from(existing));
+                if existing {
+                    assert_eq!(fs::read(&others[0]).unwrap(), b"old");
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_dry_run_mover_success() {

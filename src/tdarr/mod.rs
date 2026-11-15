@@ -54,6 +54,7 @@ impl TdarrMoveBlocker {
         self.collect_client_rows(
             "api/v2/client/staged",
             &[],
+            serde_json::json!({}),
             "staged or processing in Tdarr",
             blocked_paths,
         )
@@ -61,6 +62,7 @@ impl TdarrMoveBlocker {
 
     fn collect_status_table(
         &self,
+        table: &str,
         filter_id: &str,
         filter_value: &str,
         reason: &str,
@@ -74,6 +76,7 @@ impl TdarrMoveBlocker {
         self.collect_client_rows(
             "api/v2/client/status-tables",
             &filters,
+            serde_json::json!({"table": table}),
             reason,
             blocked_paths,
         )
@@ -83,6 +86,7 @@ impl TdarrMoveBlocker {
         &self,
         endpoint: &str,
         filters: &[ClientFilter],
+        opts: Value,
         reason: &str,
         blocked_paths: &mut HashMap<PathBuf, BlockReason>,
     ) -> Result<()> {
@@ -96,7 +100,7 @@ impl TdarrMoveBlocker {
                     page_size,
                     filters: filters.to_vec(),
                     sorts: Vec::new(),
-                    opts: serde_json::json!({}),
+                    opts: opts.clone(),
                 },
             };
             let response: ClientResponse = self.post_json(endpoint, &request)?;
@@ -203,6 +207,7 @@ impl MoveBlocker for TdarrMoveBlocker {
         }
         if self.config.block_queued_transcode {
             self.collect_status_table(
+                "table1",
                 "TranscodeDecisionMaker",
                 "Queued",
                 "queued for Tdarr transcode",
@@ -211,6 +216,7 @@ impl MoveBlocker for TdarrMoveBlocker {
         }
         if self.config.block_queued_healthcheck {
             self.collect_status_table(
+                "table4",
                 "HealthCheck",
                 "Queued",
                 "queued for Tdarr health check",
@@ -375,6 +381,51 @@ fn looks_like_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_status_table_request_includes_table_option() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+        for (table, field) in [
+            ("table1", "TranscodeDecisionMaker"),
+            ("table4", "HealthCheck"),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                let valid = request["data"]["opts"]["table"] == table;
+                let status = if valid { "200 OK" } else { "400 Bad Request" };
+                let response = r#"{"array":[],"totalCount":0}"#;
+                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).unwrap();
+                assert!(valid, "missing status table selector: {request}");
+            });
+            let config = serde_json::from_value(serde_json::json!({"url":url})).unwrap();
+            let client = TdarrMoveBlocker::new(config).unwrap();
+            let result =
+                client.collect_status_table(table, field, "Queued", "test", &mut HashMap::new());
+            server.join().unwrap();
+            result.unwrap();
+        }
+    }
 
     fn mapping(host_prefix: &str, app_prefix: &str) -> PathMappingConfig {
         PathMappingConfig {
