@@ -272,8 +272,8 @@ mod tests {
         assert_eq!(result.files_stayed, 0);
         assert_eq!(result.bytes_moved, 0);
         assert_eq!(result.files_blocked, 0);
-        assert!(result.blocked.is_empty());
-        assert!(result.errors.is_empty());
+        assert_eq!(result.blocked, [] as [ExecutionBlocked; 0]);
+        assert_eq!(result.errors, [] as [ExecutionError; 0]);
     }
 
     #[test]
@@ -310,7 +310,7 @@ mod tests {
         assert_eq!(result.files_stayed, 2);
         assert_eq!(result.bytes_moved, 0);
         assert_eq!(result.files_blocked, 0);
-        assert!(result.errors.is_empty());
+        assert_eq!(result.errors, [] as [ExecutionError; 0]);
     }
 
     #[test]
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!(result.files_stayed, 0);
         assert_eq!(result.bytes_moved, 5000);
         assert_eq!(result.files_blocked, 0);
-        assert!(result.errors.is_empty());
+        assert_eq!(result.errors, [] as [ExecutionError; 0]);
     }
 
     #[test]
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(result.files_stayed, 0);
         assert_eq!(result.bytes_moved, 3000);
         assert_eq!(result.files_blocked, 0);
-        assert!(result.errors.is_empty());
+        assert_eq!(result.errors, [] as [ExecutionError; 0]);
     }
 
     #[test]
@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(result.files_stayed, 1);
         assert_eq!(result.bytes_moved, 5000); // 2000 + 3000
         assert_eq!(result.files_blocked, 0);
-        assert!(result.errors.is_empty());
+        assert_eq!(result.errors, [] as [ExecutionError; 0]);
     }
 
     #[test]
@@ -456,7 +456,7 @@ mod tests {
         assert_eq!(result.files_blocked, 1);
         assert_eq!(result.blocked[0].file, blocked_path);
         assert_eq!(result.blocked[0].provider, "tdarr");
-        assert!(result.errors.is_empty());
+        assert_eq!(result.errors, [] as [ExecutionError; 0]);
     }
 
     #[test]
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(result.files_moved, 1);
         assert_eq!(result.bytes_moved, 1000);
         assert_eq!(result.files_blocked, 0);
-        assert!(result.errors.is_empty());
+        assert_eq!(result.errors, [] as [ExecutionError; 0]);
         assert!(
             !destination_parent.exists(),
             "dry-run must not create destination directories"

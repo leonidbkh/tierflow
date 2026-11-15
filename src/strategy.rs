@@ -89,7 +89,7 @@ mod tests {
         assert_eq!(strategy.priority, 1);
         assert!(!strategy.is_required);
         assert!(strategy.conditions.is_empty());
-        assert!(strategy.preferred_tiers.is_empty());
+        assert_eq!(strategy.preferred_tiers, [] as [String; 0]);
     }
 
     #[test]
