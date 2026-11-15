@@ -54,7 +54,7 @@ impl TdarrMoveBlocker {
         self.collect_client_rows(
             "api/v2/client/staged",
             &[],
-            serde_json::json!({}),
+            &serde_json::json!({}),
             "staged or processing in Tdarr",
             blocked_paths,
         )
@@ -76,7 +76,7 @@ impl TdarrMoveBlocker {
         self.collect_client_rows(
             "api/v2/client/status-tables",
             &filters,
-            serde_json::json!({"table": table}),
+            &serde_json::json!({"table": table}),
             reason,
             blocked_paths,
         )
@@ -86,7 +86,7 @@ impl TdarrMoveBlocker {
         &self,
         endpoint: &str,
         filters: &[ClientFilter],
-        opts: Value,
+        opts: &Value,
         reason: &str,
         blocked_paths: &mut HashMap<PathBuf, BlockReason>,
     ) -> Result<()> {
